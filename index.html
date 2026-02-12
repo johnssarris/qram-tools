@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QRAM Decoder">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>QRAM Decoder</title>
+  <script src="https://unpkg.com/qram@0.3.9/dist/qram.min.js"></script>
+  <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script src="https://unpkg.com/base64url-universal@1.1.0/dist/base64url-universal.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      min-height: 100vh;
+      padding: 15px;
+    }
+    
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 15px;
+      font-size: 1.4rem;
+      color: #00d4ff;
+    }
+    
+    #video-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 15px;
+    }
+    
+    #video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    #canvas {
+      display: none;
+    }
+    
+    #overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    
+    #scan-region {
+      width: 75%;
+      height: 75%;
+      border: 3px solid #00d4ff;
+      border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    }
+    
+    .status-box {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+    }
+    
+    .status-label {
+      font-size: 0.8rem;
+      color: #888;
+      margin-bottom: 5px;
+    }
+    
+    .status-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    
+    #progress-bar {
+      width: 100%;
+      height: 10px;
+      background: #16213e;
+      border-radius: 5px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00d4ff, #00ff88);
+      width: 0%;
+      transition: width 0.2s ease;
+    }
+    
+    .stats-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    
+    .stat-box {
+      flex: 1;
+      background: #16213e;
+      border-radius: 10px;
+      padding: 12px;
+      text-align: center;
+    }
+    
+    .stat-value {
+      font-size: 1.3rem;
+      font-weight: bold;
+      color: #00d4ff;
+    }
+    
+    .stat-label {
+      font-size: 0.7rem;
+      color: #888;
+      margin-top: 3px;
+    }
+    
+    #result-container {
+      display: none;
+      background: #16213e;
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 12px;
+    }
+    
+    #result-container.show {
+      display: block;
+    }
+    
+    #result {
+      width: 100%;
+      height: 180px;
+      background: #0d1117;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #00ff88;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 11px;
+      padding: 10px;
+      resize: vertical;
+    }
+    
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 8px;
+      transition: transform 0.1s;
+    }
+    
+    .btn:active {
+      transform: scale(0.98);
+    }
+    
+    .btn-success {
+      background: #00ff88;
+      color: #000;
+    }
+    
+    .btn-secondary {
+      background: #16213e;
+      color: #eee;
+    }
+    
+    #error-msg {
+      background: #ff4444;
+      color: #fff;
+      padding: 10px 15px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      display: none;
+      font-size: 0.9rem;
+    }
+    
+    #error-msg.show {
+      display: block;
+    }
+    
+    .scan-indicator {
+      position: absolute;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 255, 136, 0.9);
+      color: #000;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+    
+    .scan-indicator.flash {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📥 QRAM Decoder</h1>
+    
+    <div id="error-msg"></div>
+    
+    <div id="video-container">
+      <video id="video" autoplay playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div id="overlay">
+        <div id="scan-region"></div>
+      </div>
+      <div id="scan-indicator" class="scan-indicator">✓ Packet</div>
+    </div>
+    
+    <div id="progress-bar">
+      <div id="progress-fill"></div>
+    </div>
+    
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-value" id="blocks-received">0</div>
+        <div class="stat-label">Blocks</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="blocks-total">?</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="packets-scanned">0</div>
+        <div class="stat-label">Packets</div>
+      </div>
+    </div>
+    
+    <div class="status-box">
+      <div class="status-label">Status</div>
+      <div class="status-value" id="status">Initializing camera...</div>
+    </div>
+    
+    <div id="result-container">
+      <div class="status-label">Decoded Content</div>
+      <textarea id="result" readonly></textarea>
+    </div>
+    
+    <button id="copy-btn" class="btn btn-success" style="display: none;">
+      📋 Copy to Clipboard
+    </button>
+    
+    <button id="reset-btn" class="btn btn-secondary">
+      🔄 Reset & Scan Again
+    </button>
+  </div>
+
+  <script>
+    // Elements
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const progressFill = document.getElementById('progress-fill');
+    const blocksReceivedEl = document.getElementById('blocks-received');
+    const blocksTotalEl = document.getElementById('blocks-total');
+    const packetsScannedEl = document.getElementById('packets-scanned');
+    const resultContainer = document.getElementById('result-container');
+    const resultEl = document.getElementById('result');
+    const copyBtn = document.getElementById('copy-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const errorMsg = document.getElementById('error-msg');
+    const scanIndicator = document.getElementById('scan-indicator');
+    
+    // State
+    let scanning = true;
+    let cameraStream = null;
+    let decoder = null;
+    let decodePromise = null;
+    let packetsScanned = 0;
+    let flashTimeout = null;
+    
+    // Initialize
+    async function init() {
+      decoder = new qram.Decoder();
+      decodePromise = decoder.decode();
+      
+      // Handle decode completion
+      decodePromise.then(result => {
+        onComplete(result);
+      }).catch(err => {
+        if (err.name !== 'AbortError') {
+          showError('Decode error: ' + err.message);
+        }
+      });
+      
+      await initCamera();
+    }
+    
+    // Initialize camera
+    async function initCamera() {
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' }
+        });
+        video.srcObject = cameraStream;
+        video.setAttribute('playsinline', true);
+        await video.play();
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        statusEl.textContent = 'Point camera at animated QR...';
+        requestAnimationFrame(scanFrame);
+      } catch (err) {
+        showError('Camera access denied. Please allow camera permissions.');
+        console.error(err);
+      }
+    }
+    
+    // Show error
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('show');
+    }
+    
+    // Hide error
+    function hideError() {
+      errorMsg.classList.remove('show');
+    }
+    
+    // Flash indicator
+    function flashIndicator() {
+      scanIndicator.classList.add('flash');
+      if (flashTimeout) clearTimeout(flashTimeout);
+      flashTimeout = setTimeout(() => {
+        scanIndicator.classList.remove('flash');
+      }, 150);
+    }
+    
+    // Scan frame
+    async function scanFrame() {
+      if (!scanning) return;
+      
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: 'dontInvert'
+        });
+        
+        if (code && code.data) {
+          try {
+            // Decode base64url to Uint8Array
+            const packetData = base64url.decode(code.data);
+            
+            // Enqueue packet to decoder
+            const progress = await decoder.enqueue(packetData);
+            
+            packetsScanned++;
+            packetsScannedEl.textContent = packetsScanned;
+            flashIndicator();
+            hideError();
+            
+            // Update progress
+            if (progress) {
+              blocksReceivedEl.textContent = progress.receivedBlocks;
+              blocksTotalEl.textContent = progress.totalBlocks;
+              
+              const pct = (progress.receivedBlocks / progress.totalBlocks) * 100;
+              progressFill.style.width = `${pct}%`;
+              
+              statusEl.textContent = `Receiving: ${progress.receivedBlocks}/${progress.totalBlocks} blocks`;
+            }
+          } catch (err) {
+            // Ignore invalid packets silently - might not be qram format
+            if (err.name !== 'AbortError') {
+              // Could be non-qram QR, just skip
+            }
+          }
+        }
+      }
+      
+      requestAnimationFrame(scanFrame);
+    }
+    
+    // Handle completion
+    function onComplete(result) {
+      scanning = false;
+      
+      // Decode Uint8Array to string
+      const textDecoder = new TextDecoder();
+      const text = textDecoder.decode(result.data);
+      
+      resultEl.value = text;
+      resultContainer.classList.add('show');
+      copyBtn.style.display = 'block';
+      
+      statusEl.textContent = `✅ Complete! ${result.data.length} bytes received.`;
+      progressFill.style.width = '100%';
+      
+      // Stop camera
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    }
+    
+    // Copy to clipboard
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(resultEl.value);
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 Copy to Clipboard';
+        }, 2000);
+      } catch (err) {
+        resultEl.select();
+        document.execCommand('copy');
+        copyBtn.textContent = '✅ Copied!';
+        setTimeout(() => {
+          copyBtn.textContent = '📋 Copy to Clipboard';
+        }, 2000);
+      }
+    });
+    
+    // Reset
+    resetBtn.addEventListener('click', () => {
+      // Cancel current decoder
+      if (decoder) {
+        decoder.cancel();
+      }
+      
+      // Reset state
+      scanning = true;
+      packetsScanned = 0;
+      
+      // Reset UI
+      resultContainer.classList.remove('show');
+      copyBtn.style.display = 'none';
+      progressFill.style.width = '0%';
+      blocksReceivedEl.textContent = '0';
+      blocksTotalEl.textContent = '?';
+      packetsScannedEl.textContent = '0';
+      hideError();
+      
+      // Reinitialize
+      init();
+    });
+    
+    // Start
+    init();
+  </script>
+</body>
+</html>
