@@ -1,84 +1,221 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>QRAM TX</title>
-<script src="https://unpkg.com/qram@0.3.9/dist/qram.min.js"></script>
-<script src="https://unpkg.com/qrcode@1.5.1/build/qrcode.min.js"></script>
-<style>
-body{font-family:system-ui;background:#1a1a2e;color:#eee;padding:20px;max-width:800px;margin:auto}
-textarea{width:100%;height:200px;background:#0d1117;color:#0f0;border:1px solid #333;padding:10px;font-family:monospace;font-size:12px}
-button{padding:12px 24px;margin:10px 5px 10px 0;border:none;border-radius:6px;font-size:16px;cursor:pointer}
-#start{background:#0f0;color:#000}
-#stop{background:#f44;color:#fff}
-canvas{display:block;margin:20px auto;background:#fff;border-radius:8px}
-#stats{text-align:center;font-size:14px;color:#888}
-.row{display:flex;gap:15px;align-items:center;margin:10px 0}
-.row label{color:#aaa}
-.row input{width:60px;padding:5px;background:#0d1117;border:1px solid #333;color:#eee}
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QRAM TX</title>
+
+  <!-- Libraries (same as your original) -->
+  <script src="https://unpkg.com/qram@0.3.9/dist/qram.min.js"></script>
+  <script src="https://unpkg.com/qrcode@1.5.1/build/qrcode.min.js"></script>
+
+  <style>
+    body{font-family:system-ui;background:#1a1a2e;color:#eee;padding:20px;max-width:900px;margin:auto}
+    textarea{width:100%;height:220px;background:#0d1117;color:#0f0;border:1px solid #333;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;border-radius:8px}
+    button{padding:12px 24px;margin:10px 8px 10px 0;border:none;border-radius:8px;font-size:16px;cursor:pointer}
+    #start{background:#00ff4c;color:#000}
+    #stop{background:#ff4b4b;color:#fff}
+    #start:disabled,#stop:disabled{opacity:.55;cursor:not-allowed}
+    canvas{display:block;margin:20px auto;background:#fff;border-radius:12px}
+    #stats{text-align:center;font-size:14px;color:#b7b7b7;min-height:20px}
+    #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
+    .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0}
+    .row label{color:#c8c8c8;display:flex;gap:6px;align-items:center}
+    .row input{width:80px;padding:6px 8px;background:#0d1117;border:1px solid #333;color:#eee;border-radius:6px}
+    .hint{color:#8f8f8f;font-size:12px;margin-top:6px}
+    h2{margin:0 0 10px 0}
+  </style>
 </head>
+
 <body>
-<h2>QRAM Encoder</h2>
-<textarea id="txt" placeholder="Paste code here..."></textarea>
-<div class="row">
-<button id="start">▶ Start</button>
-<button id="stop">■ Stop</button>
-<label>FPS:<input type="number" id="fps" value="6"></label>
-<label>Block:<input type="number" id="blk" value="300"></label>
-</div>
-<canvas id="qr" width="350" height="350"></canvas>
-<div id="stats"></div>
+  <h2>QRAM Encoder</h2>
+
+  <textarea id="txt" placeholder="Paste text here..."></textarea>
+  <div class="hint">
+    Tip: If you open this as <code>file://</code> on iOS, some CDNs/content blockers can prevent scripts from loading.
+    If the QR stays white, check the error box below.
+  </div>
+
+  <div class="row">
+    <button id="start">▶ Start</button>
+    <button id="stop" disabled>■ Stop</button>
+
+    <label>FPS:<input type="number" id="fps" value="6" min="1" max="60"></label>
+    <label>Block:<input type="number" id="blk" value="300" min="50" max="2000"></label>
+  </div>
+
+  <canvas id="qr" width="350" height="350"></canvas>
+  <div id="stats"></div>
+  <div id="err"></div>
 
 <script>
-var running=false, cancel=false;
+(() => {
+  const elTxt   = document.getElementById('txt');
+  const elFPS   = document.getElementById('fps');
+  const elBlk   = document.getElementById('blk');
+  const elStart = document.getElementById('start');
+  const elStop  = document.getElementById('stop');
+  const elStats = document.getElementById('stats');
+  const elErr   = document.getElementById('err');
+  const elCanvas = document.getElementById('qr');
 
-function b64encode(u8){
-  var s='',c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
-  for(var i=0;i<u8.length;i+=3){
-    var b=(u8[i]<<16)|(u8[i+1]<<8)|u8[i+2];
-    s+=c[b>>18&63]+c[b>>12&63]+c[b>>6&63]+c[b&63];
+  let running = false;
+  let cancelRequested = false;
+
+  // Keep references so Stop can actually stop the underlying stream
+  let reader = null;
+  let stream = null;
+
+  function showError(msg, errObj) {
+    const extra = errObj ? ("\n\n" + (errObj.stack || String(errObj))) : "";
+    elErr.textContent = String(msg) + extra;
+    elErr.style.display = "block";
+    console.error(msg, errObj);
   }
-  var pad=u8.length%3;
-  if(pad)s=s.slice(0,pad-3);
-  return s;
-}
 
-async function start(){
-  if(running)return;
-  var txt=document.getElementById('txt').value;
-  if(!txt){alert('Enter text');return;}
-  
-  var fps=parseInt(document.getElementById('fps').value)||6;
-  var blockSize=parseInt(document.getElementById('blk').value)||300;
-  var delay=1000/fps;
-  
-  var data=new TextEncoder().encode(txt);
-  var enc=new qram.Encoder({data:data,blockSize:blockSize});
-  var stream=await enc.createReadableStream();
-  var reader=stream.getReader();
-  
-  running=true;cancel=false;
-  var n=0,blocks=Math.ceil(data.length/blockSize);
-  document.getElementById('stats').textContent=data.length+' bytes, '+blocks+' blocks';
-  
-  while(!cancel){
-    var r=await reader.read();
-    if(r.done)break;
-    var pkt=r.value;
-    var b64=b64encode(pkt.data);
-    await QRCode.toCanvas(document.getElementById('qr'),b64,{width:350,margin:1,errorCorrectionLevel:'L'});
-    n++;
-    document.getElementById('stats').textContent=data.length+' bytes, '+blocks+' blocks, packet #'+n;
-    await new Promise(function(ok){setTimeout(ok,delay);});
+  function clearError() {
+    elErr.textContent = "";
+    elErr.style.display = "none";
   }
-  running=false;
-}
 
-function stop(){cancel=true;running=false;}
+  // Safe base64url (no padding) for Uint8Array
+  function base64urlEncode(u8) {
+    // Convert to binary string in chunks (avoid call-stack limits)
+    let bin = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < u8.length; i += chunk) {
+      bin += String.fromCharCode.apply(null, u8.subarray(i, i + chunk));
+    }
+    return btoa(bin)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+  }
 
-document.getElementById('start').onclick=start;
-document.getElementById('stop').onclick=stop;
+  function setButtons(isRunning) {
+    elStart.disabled = isRunning;
+    elStop.disabled = !isRunning;
+  }
+
+  function clearCanvas() {
+    const ctx = elCanvas.getContext('2d');
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,elCanvas.width, elCanvas.height);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0,0,elCanvas.width, elCanvas.height);
+    ctx.restore();
+  }
+
+  async function start() {
+    if (running) return;
+    clearError();
+    clearCanvas();
+
+    // Basic “did the CDN actually load?” checks
+    if (!window.qram)   { showError("qram library didn't load. Check network / content blockers / file:// restrictions."); return; }
+    if (!window.QRCode) { showError("qrcode library didn't load. Check network / content blockers / file:// restrictions."); return; }
+
+    const txt = elTxt.value || "";
+    if (!txt.trim()) { alert("Enter text"); return; }
+
+    const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
+    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 300));
+    const delay = 1000 / fps;
+
+    let data;
+    try {
+      data = new TextEncoder().encode(txt);
+    } catch (e) {
+      showError("TextEncoder failed (very old browser?)", e);
+      return;
+    }
+
+    let enc;
+    try {
+      enc = new qram.Encoder({ data, blockSize });
+    } catch (e) {
+      showError("Failed to create qram.Encoder (bad options?)", e);
+      return;
+    }
+
+    try {
+      stream = await enc.createReadableStream();
+      reader = stream.getReader();
+    } catch (e) {
+      showError("Failed to create/read QRAM stream.", e);
+      return;
+    }
+
+    running = true;
+    cancelRequested = false;
+    setButtons(true);
+
+    let n = 0;
+    const blocks = Math.ceil(data.length / blockSize);
+    elStats.textContent = `${data.length} bytes, ${blocks} blocks`;
+
+    try {
+      while (!cancelRequested) {
+        const { value: pkt, done } = await reader.read();
+        if (done) break;
+
+        // Most QRAM receivers expect the packet JSON; your original used pkt.data only.
+        // If you want "data only", swap payload to base64urlEncode(pkt.data).
+        // Using full packet JSON makes debugging/decoding easier.
+        const payloadObj = {
+          // keep the qram packet fields if present
+          ...pkt,
+          // ensure data is encoded safely
+          data: base64urlEncode(pkt.data)
+        };
+
+        const payload = JSON.stringify(payloadObj);
+
+        try {
+          await QRCode.toCanvas(elCanvas, payload, {
+            width: 350,
+            margin: 1,
+            errorCorrectionLevel: 'L'
+          });
+        } catch (e) {
+          showError("QR render error (QRCode.toCanvas failed).", e);
+          break;
+        }
+
+        n++;
+        elStats.textContent = `${data.length} bytes, ${blocks} blocks, packet #${n}`;
+
+        // Simple pacing; note: background tabs may throttle timers
+        await new Promise(ok => setTimeout(ok, delay));
+      }
+    } catch (e) {
+      showError("Streaming loop error.", e);
+    } finally {
+      try { await reader?.cancel(); } catch (e) {}
+      try { await stream?.cancel?.(); } catch (e) {}
+      reader = null;
+      stream = null;
+
+      running = false;
+      cancelRequested = false;
+      setButtons(false);
+    }
+  }
+
+  function stop() {
+    cancelRequested = true;
+    try { reader?.cancel(); } catch (e) {}
+    try { stream?.cancel?.(); } catch (e) {}
+    // The finally{} in start() will clean up and reset buttons.
+  }
+
+  elStart.addEventListener('click', start);
+  elStop.addEventListener('click', stop);
+
+  // Start with a clean canvas
+  clearCanvas();
+})();
 </script>
 </body>
 </html>
