@@ -1,7 +1,9 @@
-const CACHE_NAME = 'qram-decoder-v1';
+// Bump version when any cached file changes to force update
+const CACHE_NAME = 'qram-decoder-v2';
 const ASSETS = [
   './',
   './index.html',
+  './manifest.json',
   './libs/qram.min.js',
   './libs/jsQR.js'
 ];
