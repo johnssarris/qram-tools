@@ -271,6 +271,10 @@
       📋 Copy to Clipboard
     </button>
     
+    <button id="save-btn" class="btn btn-success" style="display: none;">
+      💾 Save as File
+    </button>
+    
     <button id="reset-btn" class="btn btn-secondary">
       🔄 Reset & Scan Again
     </button>
@@ -289,6 +293,7 @@
     const resultContainer = document.getElementById('result-container');
     const resultEl = document.getElementById('result');
     const copyBtn = document.getElementById('copy-btn');
+    const saveBtn = document.getElementById('save-btn');
     const resetBtn = document.getElementById('reset-btn');
     const errorMsg = document.getElementById('error-msg');
     const scanIndicator = document.getElementById('scan-indicator');
@@ -419,6 +424,7 @@
       resultEl.value = text;
       resultContainer.classList.add('show');
       copyBtn.style.display = 'block';
+      saveBtn.style.display = 'block';
       
       statusEl.textContent = `✅ Complete! ${result.data.length} bytes received.`;
       progressFill.style.width = '100%';
@@ -447,6 +453,17 @@
       }
     });
     
+    // Save as file
+    saveBtn.addEventListener('click', () => {
+      const blob = new Blob([resultEl.valuel, { type: 'text/plain' });
+      const url = URL.create0bjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'qram-transfer.txt';
+      a.click(;
+      URL.revoke0bjectURL(url);
+    }) ;
+    
     // Reset
     resetBtn.addEventListener('click', () => {
       // Cancel current decoder
@@ -461,6 +478,7 @@
       // Reset UI
       resultContainer.classList.remove('show');
       copyBtn.style.display = 'none';
+      saveBtn.style.display = 'none';
       progressFill.style.width = '0%';
       blocksReceivedEl.textContent = '0';
       blocksTotalEl.textContent = '?';
