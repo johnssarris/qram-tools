@@ -9,6 +9,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <title>QRAM Decoder</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
   <style>
@@ -357,7 +358,8 @@
         if (decoder) {
           decoder.cancel();
         }
-        showError('Camera access denied. Please allow camera permissions.');
+        showError('Camera access failed. Allow camera permissions and tap Reset to retry.');
+        statusEl.textContent = 'Camera unavailable';
         console.error(err);
       }
     }
@@ -387,11 +389,13 @@
       if (!scanning) return;
       
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        // Crop to the 75% scan region shown in the overlay (saves ~56% pixels)
+        const cropSize = Math.round(Math.min(canvas.width, canvas.height) * 0.75);
+        const cropX = Math.round((canvas.width - cropSize) / 2);
+        const cropY = Math.round((canvas.height - cropSize) / 2);
+        const imageData = ctx.getImageData(cropX, cropY, cropSize, cropSize);
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
           inversionAttempts: 'dontInvert'
         });
@@ -473,9 +477,14 @@
           copyBtn.textContent = '📋 Copy to Clipboard';
         }, 2000);
       } catch (err) {
-        resultEl.select();
-        document.execCommand('copy');
-        copyBtn.textContent = '✅ Copied!';
+        // Fallback for older browsers / restricted contexts
+        try {
+          resultEl.select();
+          document.execCommand('copy');
+          copyBtn.textContent = '✅ Copied!';
+        } catch (e) {
+          copyBtn.textContent = '⚠ Select and copy manually';
+        }
         setTimeout(() => {
           copyBtn.textContent = '📋 Copy to Clipboard';
         }, 2000);
@@ -521,6 +530,17 @@
       init();
     });
     
+    // Stop camera when leaving the page
+    window.addEventListener('pagehide', () => {
+      scanning = false;
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+      if (decoder) {
+        decoder.cancel();
+      }
+    });
+
     // Register service worker for offline PWA support
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(() => {});

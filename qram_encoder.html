@@ -66,6 +66,27 @@
   let reader = null;
   let stream = null;
 
+  // Restore saved settings
+  try {
+    const saved = JSON.parse(localStorage.getItem('qram-encoder-settings'));
+    if (saved) {
+      if (saved.fps) elFPS.value = saved.fps;
+      if (saved.blockSize) elBlk.value = saved.blockSize;
+    }
+  } catch (e) {}
+
+  function saveSettings() {
+    try {
+      localStorage.setItem('qram-encoder-settings', JSON.stringify({
+        fps: elFPS.value,
+        blockSize: elBlk.value
+      }));
+    } catch (e) {}
+  }
+
+  elFPS.addEventListener('change', saveSettings);
+  elBlk.addEventListener('change', saveSettings);
+
   function showError(msg, errObj) {
     const extra = errObj ? ("\n\n" + (errObj.stack || String(errObj))) : "";
     elErr.textContent = String(msg) + extra;
@@ -103,7 +124,7 @@
     if (!window.QRCode) { showError("qrcode library didn't load. Check network / content blockers / file:// restrictions."); return; }
 
     const txt = elTxt.value || "";
-    if (!txt.trim()) { alert("Enter text"); return; }
+    if (!txt.trim()) { showError("Enter some text to encode."); return; }
 
     const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
     const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 300));
@@ -188,6 +209,13 @@
 
   elStart.addEventListener('click', start);
   elStop.addEventListener('click', stop);
+
+  // Warn when tab is backgrounded (browsers throttle timers to ~1fps)
+  document.addEventListener('visibilitychange', () => {
+    if (running && document.hidden) {
+      elStats.textContent += ' ⚠ Tab hidden — animation throttled!';
+    }
+  });
 
   // Start with a clean canvas
   clearCanvas();
