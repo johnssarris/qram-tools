@@ -21,16 +21,62 @@
     #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
     .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0}
     .row label{color:#c8c8c8;display:flex;gap:6px;align-items:center}
-    .row input{width:80px;padding:6px 8px;background:#0d1117;border:1px solid #333;color:#eee;border-radius:6px}
+    .row input[type="number"]{width:80px;padding:6px 8px;background:#0d1117;border:1px solid #333;color:#eee;border-radius:6px}
     .hint{color:#8f8f8f;font-size:12px;margin-top:6px}
     h2{margin:0 0 10px 0}
+
+    /* Mode tabs */
+    .mode-tabs{display:flex;gap:0;margin-bottom:12px}
+    .mode-tab{padding:10px 24px;background:#16213e;color:#888;border:1px solid #333;cursor:pointer;font-size:14px;font-weight:600;transition:all .15s}
+    .mode-tab:first-child{border-radius:8px 0 0 8px}
+    .mode-tab:last-child{border-radius:0 8px 8px 0}
+    .mode-tab.active{background:#00d4ff;color:#000;border-color:#00d4ff}
+    .mode-tab:not(.active):hover{background:#1e2d4a}
+
+    /* Drop zone */
+    #drop-zone{width:100%;height:220px;background:#0d1117;border:2px dashed #444;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;transition:border-color .2s,background .2s}
+    #drop-zone.active{border-color:#00d4ff;background:#0d1117cc}
+    #drop-zone.has-file{border-color:#00ff88;border-style:solid}
+    #drop-zone .drop-icon{font-size:36px;color:#555}
+    #drop-zone .drop-text{color:#888;font-size:14px}
+    #drop-zone .file-info{color:#00ff88;font-size:14px;font-weight:600}
+    #drop-zone .file-size{color:#888;font-size:12px}
+    #drop-zone .drop-hint{color:#666;font-size:11px}
+    #file-input{display:none}
+
+    /* Auto checkbox */
+    .auto-label{color:#c8c8c8;display:flex;gap:4px;align-items:center;font-size:13px;cursor:pointer}
+    .auto-label input[type="checkbox"]{accent-color:#00d4ff;width:16px;height:16px;cursor:pointer}
+    #blk:disabled{opacity:.6;cursor:not-allowed}
+
+    /* Data size indicator */
+    #data-size{font-size:12px;color:#888;margin-top:4px}
   </style>
 </head>
 
 <body>
   <h2>QRAM Encoder</h2>
 
-  <textarea id="txt" placeholder="Paste text here..."></textarea>
+  <div class="mode-tabs">
+    <div class="mode-tab active" data-mode="text">Text</div>
+    <div class="mode-tab" data-mode="file">File</div>
+  </div>
+
+  <div id="text-input">
+    <textarea id="txt" placeholder="Paste text here..."></textarea>
+  </div>
+
+  <div id="file-input-area" style="display:none">
+    <div id="drop-zone">
+      <div class="drop-icon">📁</div>
+      <div class="drop-text">Drop a file here or click to browse</div>
+      <div class="drop-hint">SSH keys, configs, small files</div>
+    </div>
+    <input type="file" id="file-input" />
+  </div>
+
+  <div id="data-size"></div>
+
   <div class="hint">
     Tip: If you open this as <code>file://</code> on iOS, some CDNs/content blockers can prevent scripts from loading.
     If the QR stays white, check the error box below.
@@ -42,6 +88,7 @@
 
     <label>FPS:<input type="number" id="fps" value="6" min="1" max="60"></label>
     <label>Block:<input type="number" id="blk" value="300" min="50" max="2000"></label>
+    <label class="auto-label"><input type="checkbox" id="auto-blk" checked> Auto</label>
   </div>
 
   <canvas id="qr" width="350" height="350"></canvas>
@@ -53,18 +100,172 @@
   const elTxt   = document.getElementById('txt');
   const elFPS   = document.getElementById('fps');
   const elBlk   = document.getElementById('blk');
+  const elAutoBlk = document.getElementById('auto-blk');
   const elStart = document.getElementById('start');
   const elStop  = document.getElementById('stop');
   const elStats = document.getElementById('stats');
   const elErr   = document.getElementById('err');
   const elCanvas = document.getElementById('qr');
+  const elDataSize = document.getElementById('data-size');
+  const elDropZone = document.getElementById('drop-zone');
+  const elFileInput = document.getElementById('file-input');
+  const elTextInput = document.getElementById('text-input');
+  const elFileInputArea = document.getElementById('file-input-area');
+  const modeTabs = document.querySelectorAll('.mode-tab');
 
   let running = false;
   let cancelRequested = false;
-
-  // Keep references so Stop can actually stop the underlying stream
   let reader = null;
   let stream = null;
+
+  // File mode state
+  let currentMode = 'text';     // 'text' or 'file'
+  let loadedFile = null;        // { name: string, data: Uint8Array }
+
+  // Magic header for file transfers: "QRAMF" (5 bytes)
+  const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+
+  // --- Mode switching ---
+  modeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (running) return;
+      const mode = tab.dataset.mode;
+      if (mode === currentMode) return;
+      currentMode = mode;
+      modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+      elTextInput.style.display = mode === 'text' ? '' : 'none';
+      elFileInputArea.style.display = mode === 'file' ? '' : 'none';
+      updateDataSize();
+    });
+  });
+
+  // --- File handling ---
+  function handleFile(file) {
+    if (!file) return;
+    // 100 KB limit — QR transfer of larger files would be impractical
+    if (file.size > 100 * 1024) {
+      showError('File too large. Keep files under 100 KB for practical QR transfer.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      loadedFile = {
+        name: file.name,
+        data: new Uint8Array(reader.result)
+      };
+      elDropZone.classList.add('has-file');
+      elDropZone.innerHTML = `
+        <div class="drop-icon">✅</div>
+        <div class="file-info">${escapeHtml(file.name)}</div>
+        <div class="file-size">${formatBytes(file.size)}</div>
+        <div class="drop-hint">Click or drop to replace</div>
+      `;
+      updateDataSize();
+    };
+    reader.onerror = () => showError('Failed to read file.');
+    reader.readAsArrayBuffer(file);
+  }
+
+  // Drop zone events
+  elDropZone.addEventListener('click', () => elFileInput.click());
+
+  elDropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    elDropZone.classList.add('active');
+  });
+
+  elDropZone.addEventListener('dragleave', () => {
+    elDropZone.classList.remove('active');
+  });
+
+  elDropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    elDropZone.classList.remove('active');
+    if (e.dataTransfer.files.length > 0) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  elFileInput.addEventListener('change', () => {
+    if (elFileInput.files.length > 0) {
+      handleFile(elFileInput.files[0]);
+    }
+  });
+
+  // Also allow dropping files on the text area to switch to file mode
+  elTxt.addEventListener('dragover', e => {
+    if (e.dataTransfer.types.includes('Files')) {
+      e.preventDefault();
+    }
+  });
+
+  elTxt.addEventListener('drop', e => {
+    if (e.dataTransfer.files.length > 0) {
+      e.preventDefault();
+      // Switch to file mode
+      currentMode = 'file';
+      modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'file'));
+      elTextInput.style.display = 'none';
+      elFileInputArea.style.display = '';
+      handleFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  // --- Auto block size ---
+  function autoBlockSize(dataLength) {
+    if (dataLength <= 50) return 50;
+    if (dataLength <= 600) return dataLength;            // 1 block
+    if (dataLength <= 1200) return Math.ceil(dataLength / 2);  // 2 blocks
+    if (dataLength <= 5000) return 400;
+    if (dataLength <= 20000) return 500;
+    if (dataLength <= 100000) return 600;
+    return 700;
+  }
+
+  elAutoBlk.addEventListener('change', () => {
+    elBlk.disabled = elAutoBlk.checked;
+    if (elAutoBlk.checked) updateDataSize();
+  });
+
+  // Initialize auto state
+  elBlk.disabled = elAutoBlk.checked;
+
+  elTxt.addEventListener('input', updateDataSize);
+
+  function updateDataSize() {
+    let size = 0;
+    if (currentMode === 'text') {
+      const txt = elTxt.value || '';
+      if (txt) size = new TextEncoder().encode(txt).length;
+    } else if (loadedFile) {
+      // Account for file protocol overhead: magic(5) + nameLen(2) + name + data
+      const nameBytes = new TextEncoder().encode(loadedFile.name).length;
+      size = FILE_MAGIC.length + 2 + nameBytes + loadedFile.data.length;
+    }
+
+    if (size > 0) {
+      elDataSize.textContent = `Data: ${formatBytes(size)}`;
+      if (elAutoBlk.checked) {
+        const auto = autoBlockSize(size);
+        elBlk.value = auto;
+      }
+    } else {
+      elDataSize.textContent = '';
+    }
+  }
+
+  // --- Helpers ---
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
 
   function showError(msg, errObj) {
     const extra = errObj ? ("\n\n" + (errObj.stack || String(errObj))) : "";
@@ -81,6 +282,8 @@
   function setButtons(isRunning) {
     elStart.disabled = isRunning;
     elStop.disabled = !isRunning;
+    // Disable mode tabs while running
+    modeTabs.forEach(t => t.style.pointerEvents = isRunning ? 'none' : '');
   }
 
   function clearCanvas() {
@@ -93,29 +296,54 @@
     ctx.restore();
   }
 
+  // --- Build payload ---
+  function buildPayload() {
+    if (currentMode === 'text') {
+      const txt = elTxt.value || '';
+      if (!txt.trim()) return null;
+      return new TextEncoder().encode(txt);
+    } else {
+      if (!loadedFile) return null;
+      // File protocol: QRAMF + 2-byte name length (BE) + name bytes + file data
+      const nameBytes = new TextEncoder().encode(loadedFile.name);
+      const totalLen = FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
+      const payload = new Uint8Array(totalLen);
+      let offset = 0;
+
+      payload.set(FILE_MAGIC, offset);
+      offset += FILE_MAGIC.length;
+
+      // Filename length as 2 bytes big-endian
+      payload[offset]     = (nameBytes.length >> 8) & 0xFF;
+      payload[offset + 1] = nameBytes.length & 0xFF;
+      offset += 2;
+
+      payload.set(nameBytes, offset);
+      offset += nameBytes.length;
+
+      payload.set(loadedFile.data, offset);
+      return payload;
+    }
+  }
+
+  // --- Start/Stop ---
   async function start() {
     if (running) return;
     clearError();
     clearCanvas();
 
-    // Basic “did the CDN actually load?” checks
     if (!window.qram)   { showError("qram library didn't load. Check network / content blockers / file:// restrictions."); return; }
     if (!window.QRCode) { showError("qrcode library didn't load. Check network / content blockers / file:// restrictions."); return; }
 
-    const txt = elTxt.value || "";
-    if (!txt.trim()) { alert("Enter text"); return; }
+    const data = buildPayload();
+    if (!data || data.length === 0) {
+      alert(currentMode === 'text' ? 'Enter text' : 'Select a file');
+      return;
+    }
 
     const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
     const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 300));
     const delay = 1000 / fps;
-
-    let data;
-    try {
-      data = new TextEncoder().encode(txt);
-    } catch (e) {
-      showError("TextEncoder failed (very old browser?)", e);
-      return;
-    }
 
     let enc;
     try {
@@ -139,15 +367,14 @@
 
     let n = 0;
     const blocks = Math.ceil(data.length / blockSize);
-    elStats.textContent = `${data.length} bytes, ${blocks} blocks`;
+    const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
+    elStats.textContent = `${modeLabel}${formatBytes(data.length)}, ${blocks} blocks`;
 
     try {
       while (!cancelRequested) {
         const { value: pkt, done } = await reader.read();
         if (done) break;
 
-        // pkt.data is the full binary-serialized packet (header + payload).
-        // Pass it directly to QRCode in byte mode — no base64url overhead.
         try {
           await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
             width: 350,
@@ -160,9 +387,8 @@
         }
 
         n++;
-        elStats.textContent = `${data.length} bytes, ${blocks} blocks, packet #${n}`;
+        elStats.textContent = `${modeLabel}${formatBytes(data.length)}, ${blocks} blocks, packet #${n}`;
 
-        // Simple pacing; note: background tabs may throttle timers
         await new Promise(ok => setTimeout(ok, delay));
       }
     } catch (e) {
@@ -183,14 +409,13 @@
     cancelRequested = true;
     try { reader?.cancel(); } catch (e) {}
     try { stream?.cancel?.(); } catch (e) {}
-    // The finally{} in start() will clean up and reset buttons.
   }
 
   elStart.addEventListener('click', start);
   elStop.addEventListener('click', stop);
 
-  // Start with a clean canvas
   clearCanvas();
+  updateDataSize();
 })();
 </script>
 </body>
