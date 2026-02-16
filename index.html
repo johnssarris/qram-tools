@@ -8,9 +8,9 @@
   <meta name="apple-mobile-web-app-title" content="QRAM Decoder">
   <meta name="theme-color" content="#1a1a2e">
   <title>QRAM Decoder</title>
-  <script src="https://unpkg.com/qram@0.3.9/dist/qram.min.js"></script>
-  <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
-  <script src="https://unpkg.com/base64url-universal@1.1.0/dist/base64url-universal.min.js"></script>
+  <link rel="manifest" href="manifest.json">
+  <script src="./libs/qram.min.js"></script>
+  <script src="./libs/jsQR.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -373,11 +373,11 @@
           inversionAttempts: 'dontInvert'
         });
         
-        if (code && code.data) {
+        if (code && code.binaryData && code.binaryData.length > 0) {
           try {
-            // Decode base64url to Uint8Array
-            const packetData = base64url.decode(code.data);
-            
+            // jsQR gives raw bytes via binaryData — no base64url needed
+            const packetData = new Uint8Array(code.binaryData);
+
             // Enqueue packet to decoder
             const progress = await decoder.enqueue(packetData);
             
@@ -471,6 +471,11 @@
       init();
     });
     
+    // Register service worker for offline PWA support
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
     // Start
     init();
   </script>
