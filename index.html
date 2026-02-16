@@ -455,14 +455,14 @@
     
     // Save as file
     saveBtn.addEventListener('click', () => {
-      const blob = new Blob([resultEl.valuel, { type: 'text/plain' });
+      const blob = new Blob([resultEl.value], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = 'qram-transfer.txt';
       a.click();
       URL.revokeObjectURL(url);
-    }) ;
+    });
     
     // Reset
     resetBtn.addEventListener('click', () => {
