@@ -353,6 +353,7 @@
     let flashTimeout = null;
     let lastPacketSignature = null;
     let speedInterval = null;
+    let pendingProgressUpdate = false;
 
     // Speed tracking
     let firstPacketTime = null;
@@ -554,29 +555,52 @@
       }, 150);
     }
 
+    // Batch DOM progress updates to avoid layout thrashing
+    function scheduleProgressUpdate() {
+      if (pendingProgressUpdate) return;
+      pendingProgressUpdate = true;
+      requestAnimationFrame(() => {
+        pendingProgressUpdate = false;
+        packetsScannedEl.textContent = packetsScanned;
+        blocksReceivedEl.textContent = lastReceivedBlocks;
+        blocksTotalEl.textContent = lastTotalBlocks;
+
+        const pct = lastTotalBlocks > 0
+          ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100)
+          : 0;
+        progressFill.style.width = `${pct}%`;
+        statusEl.textContent = `Receiving: ${lastReceivedBlocks}/${lastTotalBlocks} blocks`;
+      });
+    }
+
     // Scan frame
     async function scanFrame() {
       if (!scanning) return;
 
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Only resize canvas when video dimensions actually change
+        const vw = video.videoWidth, vh = video.videoHeight;
+        if (canvas.width !== vw || canvas.height !== vh) {
+          canvas.width = vw;
+          canvas.height = vh;
+        }
+        ctx.drawImage(video, 0, 0, vw, vh);
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        const imageData = ctx.getImageData(0, 0, vw, vh);
+        const code = jsQR(imageData.data, vw, vh, {
           inversionAttempts: 'dontInvert'
         });
 
         if (code && code.binaryData && code.binaryData.length > 0) {
           try {
-            // jsQR gives raw bytes via binaryData
             const packetData = new Uint8Array(code.binaryData);
 
             // Skip duplicate consecutive frames (encoder FPS << scan FPS)
-            // Use a hash combining length + sampled bytes for fast comparison
-            let sig = packetData.length;
-            for (let i = 0; i < packetData.length; i += 1) sig = (sig * 31 + packetData[i]) | 0;
+            // Sample ~32 evenly-spaced bytes for a fast fingerprint
+            const len = packetData.length;
+            const step = Math.max(1, len >> 5);
+            let sig = len;
+            for (let i = 0; i < len; i += step) sig = (sig * 31 + packetData[i]) | 0;
             if (sig === lastPacketSignature) {
               requestAnimationFrame(scanFrame);
               return;
@@ -587,30 +611,19 @@
             const progress = await decoder.enqueue(packetData);
 
             packetsScanned++;
-            packetsScannedEl.textContent = packetsScanned;
             flashIndicator();
-            hideError();
 
-            // Start speed tracking on first packet
             if (!firstPacketTime) {
               firstPacketTime = Date.now();
               startSpeedTracking();
+              hideError();
             }
 
-            // Update progress
+            // Update progress state, then batch the DOM write
             if (progress) {
               lastReceivedBlocks = progress.receivedBlocks;
               lastTotalBlocks = progress.totalBlocks;
-
-              blocksReceivedEl.textContent = progress.receivedBlocks;
-              blocksTotalEl.textContent = progress.totalBlocks;
-
-              const pct = progress.totalBlocks > 0
-                ? Math.min(100, (progress.receivedBlocks / progress.totalBlocks) * 100)
-                : 0;
-              progressFill.style.width = `${pct}%`;
-
-              statusEl.textContent = `Receiving: ${progress.receivedBlocks}/${progress.totalBlocks} blocks`;
+              scheduleProgressUpdate();
             }
           } catch (err) {
             // Ignore invalid packets silently - might not be qram format
@@ -758,6 +771,7 @@
       lastReceivedBlocks = 0;
       lastTotalBlocks = 0;
       decodedFileData = null;
+      pendingProgressUpdate = false;
 
       // Reset UI
       resultContainer.classList.remove('show');
