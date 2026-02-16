@@ -1,5 +1,5 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-decoder-v3';
+const CACHE_NAME = 'qram-decoder-v4';
 const ASSETS = [
   './',
   './index.html',
