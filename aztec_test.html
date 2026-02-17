@@ -5,15 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Aztec Barcode Test</title>
 
-  <!-- bwip-js from CDN -->
+  <!-- Libraries -->
+  <script src="./libs/qram.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/bwip-js@4"></script>
 
   <style>
     body{font-family:system-ui;background:#1a1a2e;color:#eee;padding:20px;max-width:900px;margin:auto}
     textarea{width:100%;height:180px;background:#0d1117;color:#0f0;border:1px solid #333;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;border-radius:8px;box-sizing:border-box}
     button{padding:12px 24px;margin:10px 8px 10px 0;border:none;border-radius:8px;font-size:16px;cursor:pointer}
-    #generate{background:#00ff4c;color:#000}
-    #generate:disabled{opacity:.55;cursor:not-allowed}
+    #start{background:#00ff4c;color:#000}
+    #stop{background:#ff4b4b;color:#fff}
+    #start:disabled,#stop:disabled{opacity:.55;cursor:not-allowed}
     canvas{display:block;margin:20px auto;background:#fff;border-radius:12px}
     #stats{text-align:center;font-size:14px;color:#b7b7b7;min-height:20px}
     #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
@@ -34,11 +36,16 @@
 
     #hex-input{display:none}
     #hex-input textarea{color:#ff9;height:120px}
+
+    .auto-label{color:#c8c8c8;display:flex;gap:4px;align-items:center;font-size:13px;cursor:pointer}
+    .auto-label input[type="checkbox"]{accent-color:#00d4ff;width:16px;height:16px;cursor:pointer}
+    #blk:disabled{opacity:.6;cursor:not-allowed}
+    #data-size{font-size:12px;color:#888;margin-top:4px}
   </style>
 </head>
 
 <body>
-  <h2>Aztec Barcode Test (bwip-js)</h2>
+  <h2>Aztec Barcode Test (bwip-js + qram)</h2>
 
   <div class="mode-tabs">
     <div class="mode-tab active" data-mode="text">Text</div>
@@ -46,7 +53,7 @@
   </div>
 
   <div id="text-input">
-    <textarea id="txt" placeholder="Enter text to encode as an Aztec barcode...">Hello, Aztec!</textarea>
+    <textarea id="txt" placeholder="Enter text to encode as animated Aztec barcodes...">Hello, Aztec!</textarea>
   </div>
 
   <div id="hex-input">
@@ -54,9 +61,18 @@
     <div class="hint">Enter hex-encoded bytes. Whitespace and common separators (: , 0x) are stripped automatically.</div>
   </div>
 
-  <div class="row">
-    <button id="generate">Generate</button>
+  <div id="data-size"></div>
 
+  <div class="row">
+    <button id="start">▶ Start</button>
+    <button id="stop" disabled>■ Stop</button>
+
+    <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
+    <label>Block:<input type="number" id="blk" value="200" min="50" max="2000"></label>
+    <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
+  </div>
+
+  <div class="row">
     <label>EC %:
       <input type="number" id="eclevel" value="23" min="1" max="99" title="Error correction percentage (default 23%)">
     </label>
@@ -70,7 +86,6 @@
         <option value="" selected>Auto</option>
         <option value="full">Full</option>
         <option value="compact">Compact</option>
-        <option value="rune">Rune</option>
       </select>
     </label>
 
@@ -84,7 +99,7 @@
     Scale controls the pixel size of each module. Layers 0 = automatic sizing.
   </div>
 
-  <canvas id="barcode"></canvas>
+  <canvas id="barcode" width="350" height="350"></canvas>
   <div id="stats"></div>
   <div id="err"></div>
 
@@ -92,27 +107,38 @@
 (() => {
   const elTxt     = document.getElementById('txt');
   const elHex     = document.getElementById('hex');
+  const elFPS     = document.getElementById('fps');
+  const elBlk     = document.getElementById('blk');
+  const elAutoBlk = document.getElementById('auto-blk');
   const elEcLevel = document.getElementById('eclevel');
   const elScale   = document.getElementById('scale');
   const elFormat  = document.getElementById('format');
   const elLayers  = document.getElementById('layers');
-  const elGenBtn  = document.getElementById('generate');
+  const elStart   = document.getElementById('start');
+  const elStop    = document.getElementById('stop');
   const elCanvas  = document.getElementById('barcode');
   const elStats   = document.getElementById('stats');
   const elErr     = document.getElementById('err');
+  const elDataSize = document.getElementById('data-size');
   const modeTabs  = document.querySelectorAll('.mode-tab');
 
   let currentMode = 'text';
+  let running = false;
+  let cancelRequested = false;
+  let reader = null;
+  let stream = null;
 
   // --- Mode switching ---
   modeTabs.forEach(tab => {
     tab.addEventListener('click', () => {
+      if (running) return;
       const mode = tab.dataset.mode;
       if (mode === currentMode) return;
       currentMode = mode;
       modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
       document.getElementById('text-input').style.display = mode === 'text' ? '' : 'none';
       document.getElementById('hex-input').style.display  = mode === 'hex'  ? '' : 'none';
+      updateDataSize();
     });
   });
 
@@ -130,7 +156,6 @@
   }
 
   function hexToBytes(hex) {
-    // Strip common separators and whitespace
     hex = hex.replace(/0x|[:\s,]/gi, '');
     if (!/^[0-9a-f]*$/i.test(hex)) {
       throw new Error('Invalid hex characters detected');
@@ -151,51 +176,94 @@
     return (n / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
-  // --- Generate barcode ---
-  function generate() {
-    clearError();
-    elStats.textContent = '';
+  function setButtons(isRunning) {
+    elStart.disabled = isRunning;
+    elStop.disabled = !isRunning;
+    modeTabs.forEach(t => t.style.pointerEvents = isRunning ? 'none' : '');
+  }
 
-    if (typeof bwipjs === 'undefined') {
-      showError("bwip-js library didn't load. Check network / content blockers / file:// restrictions.");
-      return;
+  function clearCanvas() {
+    const ctx = elCanvas.getContext('2d');
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, elCanvas.width, elCanvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, elCanvas.width, elCanvas.height);
+    ctx.restore();
+  }
+
+  // --- Auto block size (same logic as main encoder) ---
+  function autoBlockSize(dataLength) {
+    if (dataLength <= 50) return 50;
+    if (dataLength <= 600) return dataLength;
+    if (dataLength <= 1200) return Math.ceil(dataLength / 2);
+    if (dataLength <= 5000) return 400;
+    if (dataLength <= 20000) return 500;
+    if (dataLength <= 100000) return 600;
+    return 700;
+  }
+
+  elAutoBlk.addEventListener('change', () => {
+    elBlk.disabled = elAutoBlk.checked;
+    if (elAutoBlk.checked) updateDataSize();
+  });
+
+  elBlk.disabled = elAutoBlk.checked;
+  elTxt.addEventListener('input', updateDataSize);
+  elHex.addEventListener('input', updateDataSize);
+
+  function updateDataSize() {
+    let size = 0;
+    if (currentMode === 'text') {
+      const txt = elTxt.value || '';
+      if (txt) size = new TextEncoder().encode(txt).length;
+    } else {
+      const hexVal = (elHex.value || '').replace(/0x|[:\s,]/gi, '');
+      if (hexVal.length > 0 && /^[0-9a-f]*$/i.test(hexVal) && hexVal.length % 2 === 0) {
+        size = hexVal.length / 2;
+      }
     }
 
-    let dataStr;
-    let dataLen;
-
-    if (currentMode === 'text') {
-      dataStr = elTxt.value;
-      if (!dataStr) {
-        showError('Enter some text to encode.');
-        return;
+    if (size > 0) {
+      elDataSize.textContent = `Data: ${formatBytes(size)}`;
+      if (elAutoBlk.checked) {
+        elBlk.value = autoBlockSize(size);
       }
-      dataLen = new TextEncoder().encode(dataStr).length;
+    } else {
+      elDataSize.textContent = '';
+    }
+  }
+
+  // --- Build payload ---
+  function buildPayload() {
+    if (currentMode === 'text') {
+      const txt = elTxt.value || '';
+      if (!txt.trim()) return null;
+      return new TextEncoder().encode(txt);
     } else {
       const hexVal = elHex.value.trim();
-      if (!hexVal) {
-        showError('Enter hex data to encode.');
-        return;
-      }
-      let bytes;
+      if (!hexVal) return null;
       try {
-        bytes = hexToBytes(hexVal);
+        return hexToBytes(hexVal);
       } catch (e) {
         showError('Invalid hex input.', e);
-        return;
+        return null;
       }
-      // bwip-js accepts binary data as a string of code points for byte mode
-      dataStr = '';
-      for (let i = 0; i < bytes.length; i++) {
-        dataStr += String.fromCharCode(bytes[i]);
-      }
-      dataLen = bytes.length;
     }
+  }
 
+  // --- Render a single packet as Aztec barcode ---
+  function renderAztec(packetData) {
     const ecLevel = Math.max(1, Math.min(99, parseInt(elEcLevel.value, 10) || 23));
     const scale   = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 4));
     const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
     const format  = elFormat.value;
+
+    // Convert binary packet data to a string of code points for bwip-js byte mode
+    let dataStr = '';
+    for (let i = 0; i < packetData.length; i++) {
+      dataStr += String.fromCharCode(packetData[i]);
+    }
 
     const opts = {
       bcid:        'azteccode',
@@ -205,7 +273,6 @@
       includetext: false,
     };
 
-    // Optional params
     if (layers > 0) {
       opts.layers = layers;
     }
@@ -213,36 +280,102 @@
       opts.format = 'full';
     } else if (format === 'compact') {
       opts.format = 'compact';
-    } else if (format === 'rune') {
-      // Aztec rune is a separate barcode type in bwip-js
-      opts.bcid = 'azteccodecompact';
     }
 
-    try {
-      bwipjs.toCanvas(elCanvas, opts);
-    } catch (e) {
-      showError('Barcode generation failed.', e);
+    bwipjs.toCanvas(elCanvas, opts);
+  }
+
+  // --- Start / Stop ---
+  async function start() {
+    if (running) return;
+    clearError();
+    clearCanvas();
+
+    if (!window.qram) {
+      showError("qram library didn't load. Check network / content blockers / file:// restrictions.");
+      return;
+    }
+    if (typeof bwipjs === 'undefined') {
+      showError("bwip-js library didn't load. Check network / content blockers / file:// restrictions.");
       return;
     }
 
-    // Stats
-    const w = elCanvas.width;
-    const h = elCanvas.height;
-    elStats.textContent = `Data: ${formatBytes(dataLen)} (${dataLen} bytes) | Symbol: ${w} x ${h} px | EC: ${ecLevel}% | Scale: ${scale}x`;
+    const data = buildPayload();
+    if (!data || data.length === 0) {
+      alert(currentMode === 'text' ? 'Enter text' : 'Enter hex data');
+      return;
+    }
+
+    const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 20));
+    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 200));
+    const delay = 1000 / fps;
+
+    let enc;
+    try {
+      enc = new qram.Encoder({ data, blockSize });
+    } catch (e) {
+      showError('Failed to create qram.Encoder (bad options?)', e);
+      return;
+    }
+
+    try {
+      stream = await enc.createReadableStream();
+      reader = stream.getReader();
+    } catch (e) {
+      showError('Failed to create/read QRAM stream.', e);
+      return;
+    }
+
+    running = true;
+    cancelRequested = false;
+    setButtons(true);
+
+    let n = 0;
+    const blocks = Math.ceil(data.length / blockSize);
+    elStats.textContent = `${formatBytes(data.length)}, ${blocks} blocks`;
+
+    try {
+      while (!cancelRequested) {
+        const { value: pkt, done } = await reader.read();
+        if (done) break;
+
+        try {
+          renderAztec(pkt.data);
+        } catch (e) {
+          showError('Aztec render error (bwip-js failed).', e);
+          break;
+        }
+
+        n++;
+        elStats.textContent = `${formatBytes(data.length)}, ${blocks} blocks, packet #${n}`;
+
+        await new Promise(ok => setTimeout(ok, delay));
+      }
+    } catch (e) {
+      showError('Streaming loop error.', e);
+    } finally {
+      try { await reader?.cancel(); } catch (e) {}
+      try { await stream?.cancel?.(); } catch (e) {}
+      reader = null;
+      stream = null;
+
+      running = false;
+      cancelRequested = false;
+      setButtons(false);
+    }
   }
 
-  elGenBtn.addEventListener('click', generate);
+  function stop() {
+    cancelRequested = true;
+    try { reader?.cancel(); } catch (e) {}
+    try { stream?.cancel?.(); } catch (e) {}
+  }
 
-  // Also generate on Enter in textareas
-  elTxt.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); generate(); }
-  });
-  elHex.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); generate(); }
-  });
+  elStart.addEventListener('click', start);
+  elStop.addEventListener('click', stop);
 
-  // Generate initial barcode on load
-  generate();
+  clearCanvas();
+  updateDataSize();
 })();
 </script>
 </body>
