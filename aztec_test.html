@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aztec Barcode Test</title>
+
+  <!-- bwip-js from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/bwip-js@4"></script>
+
+  <style>
+    body{font-family:system-ui;background:#1a1a2e;color:#eee;padding:20px;max-width:900px;margin:auto}
+    textarea{width:100%;height:180px;background:#0d1117;color:#0f0;border:1px solid #333;padding:10px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;border-radius:8px;box-sizing:border-box}
+    button{padding:12px 24px;margin:10px 8px 10px 0;border:none;border-radius:8px;font-size:16px;cursor:pointer}
+    #generate{background:#00ff4c;color:#000}
+    #generate:disabled{opacity:.55;cursor:not-allowed}
+    canvas{display:block;margin:20px auto;background:#fff;border-radius:12px}
+    #stats{text-align:center;font-size:14px;color:#b7b7b7;min-height:20px}
+    #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
+    .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0}
+    .row label{color:#c8c8c8;display:flex;gap:6px;align-items:center}
+    .row input[type="number"],
+    .row select{padding:6px 8px;background:#0d1117;border:1px solid #333;color:#eee;border-radius:6px}
+    .row input[type="number"]{width:80px}
+    .hint{color:#8f8f8f;font-size:12px;margin-top:6px}
+    h2{margin:0 0 10px 0}
+
+    .mode-tabs{display:flex;gap:0;margin-bottom:12px}
+    .mode-tab{padding:10px 24px;background:#16213e;color:#888;border:1px solid #333;cursor:pointer;font-size:14px;font-weight:600;transition:all .15s}
+    .mode-tab:first-child{border-radius:8px 0 0 8px}
+    .mode-tab:last-child{border-radius:0 8px 8px 0}
+    .mode-tab.active{background:#00d4ff;color:#000;border-color:#00d4ff}
+    .mode-tab:not(.active):hover{background:#1e2d4a}
+
+    #hex-input{display:none}
+    #hex-input textarea{color:#ff9;height:120px}
+  </style>
+</head>
+
+<body>
+  <h2>Aztec Barcode Test (bwip-js)</h2>
+
+  <div class="mode-tabs">
+    <div class="mode-tab active" data-mode="text">Text</div>
+    <div class="mode-tab" data-mode="hex">Hex / Binary</div>
+  </div>
+
+  <div id="text-input">
+    <textarea id="txt" placeholder="Enter text to encode as an Aztec barcode...">Hello, Aztec!</textarea>
+  </div>
+
+  <div id="hex-input">
+    <textarea id="hex" placeholder="Enter hex bytes, e.g. 48656C6C6F (whitespace ignored)..."></textarea>
+    <div class="hint">Enter hex-encoded bytes. Whitespace and common separators (: , 0x) are stripped automatically.</div>
+  </div>
+
+  <div class="row">
+    <button id="generate">Generate</button>
+
+    <label>EC %:
+      <input type="number" id="eclevel" value="23" min="1" max="99" title="Error correction percentage (default 23%)">
+    </label>
+
+    <label>Scale:
+      <input type="number" id="scale" value="4" min="1" max="20" title="Module scale factor">
+    </label>
+
+    <label>Format:
+      <select id="format" title="Aztec format">
+        <option value="" selected>Auto</option>
+        <option value="full">Full</option>
+        <option value="compact">Compact</option>
+        <option value="rune">Rune</option>
+      </select>
+    </label>
+
+    <label>Layers:
+      <input type="number" id="layers" value="0" min="0" max="32" title="Number of data layers (0 = auto)">
+    </label>
+  </div>
+
+  <div class="hint">
+    EC% controls the error correction overhead (higher = more resilient, larger symbol).
+    Scale controls the pixel size of each module. Layers 0 = automatic sizing.
+  </div>
+
+  <canvas id="barcode"></canvas>
+  <div id="stats"></div>
+  <div id="err"></div>
+
+<script>
+(() => {
+  const elTxt     = document.getElementById('txt');
+  const elHex     = document.getElementById('hex');
+  const elEcLevel = document.getElementById('eclevel');
+  const elScale   = document.getElementById('scale');
+  const elFormat  = document.getElementById('format');
+  const elLayers  = document.getElementById('layers');
+  const elGenBtn  = document.getElementById('generate');
+  const elCanvas  = document.getElementById('barcode');
+  const elStats   = document.getElementById('stats');
+  const elErr     = document.getElementById('err');
+  const modeTabs  = document.querySelectorAll('.mode-tab');
+
+  let currentMode = 'text';
+
+  // --- Mode switching ---
+  modeTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const mode = tab.dataset.mode;
+      if (mode === currentMode) return;
+      currentMode = mode;
+      modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+      document.getElementById('text-input').style.display = mode === 'text' ? '' : 'none';
+      document.getElementById('hex-input').style.display  = mode === 'hex'  ? '' : 'none';
+    });
+  });
+
+  // --- Helpers ---
+  function showError(msg, errObj) {
+    const extra = errObj ? ('\n\n' + (errObj.stack || String(errObj))) : '';
+    elErr.textContent = String(msg) + extra;
+    elErr.style.display = 'block';
+    console.error(msg, errObj);
+  }
+
+  function clearError() {
+    elErr.textContent = '';
+    elErr.style.display = 'none';
+  }
+
+  function hexToBytes(hex) {
+    // Strip common separators and whitespace
+    hex = hex.replace(/0x|[:\s,]/gi, '');
+    if (!/^[0-9a-f]*$/i.test(hex)) {
+      throw new Error('Invalid hex characters detected');
+    }
+    if (hex.length % 2 !== 0) {
+      throw new Error('Hex string must have an even number of characters');
+    }
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // --- Generate barcode ---
+  function generate() {
+    clearError();
+    elStats.textContent = '';
+
+    if (typeof bwipjs === 'undefined') {
+      showError("bwip-js library didn't load. Check network / content blockers / file:// restrictions.");
+      return;
+    }
+
+    let dataStr;
+    let dataLen;
+
+    if (currentMode === 'text') {
+      dataStr = elTxt.value;
+      if (!dataStr) {
+        showError('Enter some text to encode.');
+        return;
+      }
+      dataLen = new TextEncoder().encode(dataStr).length;
+    } else {
+      const hexVal = elHex.value.trim();
+      if (!hexVal) {
+        showError('Enter hex data to encode.');
+        return;
+      }
+      let bytes;
+      try {
+        bytes = hexToBytes(hexVal);
+      } catch (e) {
+        showError('Invalid hex input.', e);
+        return;
+      }
+      // bwip-js accepts binary data as a string of code points for byte mode
+      dataStr = '';
+      for (let i = 0; i < bytes.length; i++) {
+        dataStr += String.fromCharCode(bytes[i]);
+      }
+      dataLen = bytes.length;
+    }
+
+    const ecLevel = Math.max(1, Math.min(99, parseInt(elEcLevel.value, 10) || 23));
+    const scale   = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 4));
+    const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
+    const format  = elFormat.value;
+
+    const opts = {
+      bcid:        'azteccode',
+      text:        dataStr,
+      scale:       scale,
+      eclevel:     ecLevel,
+      includetext: false,
+    };
+
+    // Optional params
+    if (layers > 0) {
+      opts.layers = layers;
+    }
+    if (format === 'full') {
+      opts.format = 'full';
+    } else if (format === 'compact') {
+      opts.format = 'compact';
+    } else if (format === 'rune') {
+      // Aztec rune is a separate barcode type in bwip-js
+      opts.bcid = 'azteccodecompact';
+    }
+
+    try {
+      bwipjs.toCanvas(elCanvas, opts);
+    } catch (e) {
+      showError('Barcode generation failed.', e);
+      return;
+    }
+
+    // Stats
+    const w = elCanvas.width;
+    const h = elCanvas.height;
+    elStats.textContent = `Data: ${formatBytes(dataLen)} (${dataLen} bytes) | Symbol: ${w} x ${h} px | EC: ${ecLevel}% | Scale: ${scale}x`;
+  }
+
+  elGenBtn.addEventListener('click', generate);
+
+  // Also generate on Enter in textareas
+  elTxt.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); generate(); }
+  });
+  elHex.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); generate(); }
+  });
+
+  // Generate initial barcode on load
+  generate();
+})();
+</script>
+</body>
+</html>
