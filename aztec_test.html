@@ -16,7 +16,6 @@
     #start{background:#00ff4c;color:#000}
     #stop{background:#ff4b4b;color:#fff}
     #start:disabled,#stop:disabled{opacity:.55;cursor:not-allowed}
-    /* canvas{display:block;margin:20px auto;background:#fff;border-radius:12px} */
     canvas{display:block;margin:20px auto;background:#fff;border-radius:0}
     #stats{text-align:center;font-size:14px;color:#b7b7b7;min-height:20px}
     #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
@@ -46,7 +45,7 @@
 </head>
 
 <body>
-  <h2>Aztec Barcode Test (bwip-js + qram)</h2>
+  <h2>Aztec Barcode Test (bwip-js + qram) — Base64URL packets</h2>
 
   <div class="mode-tabs">
     <div class="mode-tab active" data-mode="text">Text</div>
@@ -150,7 +149,6 @@
     elErr.style.display = 'block';
     console.error(msg, errObj);
   }
-
   function clearError() {
     elErr.textContent = '';
     elErr.style.display = 'none';
@@ -158,16 +156,10 @@
 
   function hexToBytes(hex) {
     hex = hex.replace(/0x|[:\s,]/gi, '');
-    if (!/^[0-9a-f]*$/i.test(hex)) {
-      throw new Error('Invalid hex characters detected');
-    }
-    if (hex.length % 2 !== 0) {
-      throw new Error('Hex string must have an even number of characters');
-    }
+    if (!/^[0-9a-f]*$/i.test(hex)) throw new Error('Invalid hex characters detected');
+    if (hex.length % 2 !== 0) throw new Error('Hex string must have an even number of characters');
     const bytes = new Uint8Array(hex.length / 2);
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-    }
+    for (let i = 0; i < hex.length; i += 2) bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
     return bytes;
   }
 
@@ -193,7 +185,7 @@
     ctx.restore();
   }
 
-  // --- Auto block size (same logic as main encoder) ---
+  // --- Auto block size ---
   function autoBlockSize(dataLength) {
     if (dataLength <= 50) return 50;
     if (dataLength <= 600) return dataLength;
@@ -204,12 +196,21 @@
     return 700;
   }
 
+  // --- Base64URL ---
+  function bytesToBase64Url(u8) {
+    let bin = '';
+    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+    // btoa expects latin-1 binary string
+    const b64 = btoa(bin);
+    return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  }
+
   elAutoBlk.addEventListener('change', () => {
     elBlk.disabled = elAutoBlk.checked;
     if (elAutoBlk.checked) updateDataSize();
   });
-
   elBlk.disabled = elAutoBlk.checked;
+
   elTxt.addEventListener('input', updateDataSize);
   elHex.addEventListener('input', updateDataSize);
 
@@ -227,9 +228,7 @@
 
     if (size > 0) {
       elDataSize.textContent = `Data: ${formatBytes(size)}`;
-      if (elAutoBlk.checked) {
-        elBlk.value = autoBlockSize(size);
-      }
+      if (elAutoBlk.checked) elBlk.value = autoBlockSize(size);
     } else {
       elDataSize.textContent = '';
     }
@@ -244,44 +243,31 @@
     } else {
       const hexVal = elHex.value.trim();
       if (!hexVal) return null;
-      try {
-        return hexToBytes(hexVal);
-      } catch (e) {
-        showError('Invalid hex input.', e);
-        return null;
-      }
+      try { return hexToBytes(hexVal); }
+      catch (e) { showError('Invalid hex input.', e); return null; }
     }
   }
 
-  // --- Render a single packet as Aztec barcode ---
+  // --- Render a single packet as Aztec barcode (Base64URL text) ---
   function renderAztec(packetData) {
     const ecLevel = Math.max(1, Math.min(99, parseInt(elEcLevel.value, 10) || 23));
     const scale   = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 4));
     const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
     const format  = elFormat.value;
 
-    // Convert binary packet data to a string of code points for bwip-js byte mode
-    let dataStr = '';
-    for (let i = 0; i < packetData.length; i++) {
-      dataStr += String.fromCharCode(packetData[i]);
-    }
+    const payloadText = bytesToBase64Url(packetData);
 
     const opts = {
       bcid:        'azteccode',
-      text:        dataStr,
+      text:        payloadText,
       scale:       scale,
       eclevel:     ecLevel,
       includetext: false,
     };
 
-    if (layers > 0) {
-      opts.layers = layers;
-    }
-    if (format === 'full') {
-      opts.format = 'full';
-    } else if (format === 'compact') {
-      opts.format = 'compact';
-    }
+    if (layers > 0) opts.layers = layers;
+    if (format === 'full') opts.format = 'full';
+    else if (format === 'compact') opts.format = 'compact';
 
     bwipjs.toCanvas(elCanvas, opts);
   }
@@ -292,14 +278,8 @@
     clearError();
     clearCanvas();
 
-    if (!window.qram) {
-      showError("qram library didn't load. Check network / content blockers / file:// restrictions.");
-      return;
-    }
-    if (typeof bwipjs === 'undefined') {
-      showError("bwip-js library didn't load. Check network / content blockers / file:// restrictions.");
-      return;
-    }
+    if (!window.qram) { showError("qram library didn't load."); return; }
+    if (typeof bwipjs === 'undefined') { showError("bwip-js library didn't load."); return; }
 
     const data = buildPayload();
     if (!data || data.length === 0) {
@@ -312,12 +292,8 @@
     const delay = 1000 / fps;
 
     let enc;
-    try {
-      enc = new qram.Encoder({ data, blockSize });
-    } catch (e) {
-      showError('Failed to create qram.Encoder (bad options?)', e);
-      return;
-    }
+    try { enc = new qram.Encoder({ data, blockSize }); }
+    catch (e) { showError('Failed to create qram.Encoder', e); return; }
 
     try {
       stream = await enc.createReadableStream();
@@ -340,16 +316,11 @@
         const { value: pkt, done } = await reader.read();
         if (done) break;
 
-        try {
-          renderAztec(pkt.data);
-        } catch (e) {
-          showError('Aztec render error (bwip-js failed).', e);
-          break;
-        }
+        try { renderAztec(pkt.data); }
+        catch (e) { showError('Aztec render error (bwip-js failed).', e); break; }
 
         n++;
         elStats.textContent = `${formatBytes(data.length)}, ${blocks} blocks, packet #${n}`;
-
         await new Promise(ok => setTimeout(ok, delay));
       }
     } catch (e) {
