@@ -1,1 +1,572 @@
- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QRAM Decoder">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>QRAM Decoder</title>
+  <link rel="manifest" href="manifest.json">
+
+  <script src="./libs/qram.min.js"></script>
+
+  <!-- ZXing (Aztec-capable) -->
+  <!-- Prefer local for offline PWA: ./libs/zxing-browser.min.js -->
+  <script src="./libs/zxing-browser.min.js"></script>
+  <!-- Quick test CDN alternative:
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+  -->
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e; color: #eee; min-height: 100vh; padding: 15px;
+    }
+    .container { max-width: 500px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 15px; font-size: 1.4rem; color: #00d4ff; }
+    #video-container {
+      position: relative; width: 100%; aspect-ratio: 1; background: #000;
+      border-radius: 12px; overflow: hidden; margin-bottom: 15px;
+    }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    #overlay {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center; pointer-events: none;
+    }
+    #scan-region {
+      width: 75%; height: 75%;
+      border: 3px solid #00d4ff; border-radius: 12px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    }
+    .status-box { background: #16213e; border-radius: 12px; padding: 15px; margin-bottom: 12px; }
+    .status-label { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
+    .status-value { font-size: 1.1rem; font-weight: 600; }
+    #progress-bar { width: 100%; height: 10px; background: #16213e; border-radius: 5px; overflow: hidden; margin-bottom: 12px; }
+    #progress-fill { height: 100%; background: linear-gradient(90deg, #00d4ff, #00ff88); width: 0%; transition: width 0.2s ease; }
+    .stats-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .stat-box { flex: 1; background: #16213e; border-radius: 10px; padding: 12px; text-align: center; }
+    .stat-value { font-size: 1.3rem; font-weight: bold; color: #00d4ff; }
+    .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
+    #result-container { display: none; background: #16213e; border-radius: 12px; padding: 15px; margin-bottom: 12px; }
+    #result-container.show { display: block; }
+    #result {
+      width: 100%; height: 180px; background: #0d1117; border: 1px solid #333; border-radius: 8px;
+      color: #00ff88; font-family: 'Monaco','Menlo', monospace; font-size: 11px; padding: 10px; resize: vertical;
+    }
+    .file-result { text-align: center; padding: 20px 10px; }
+    .file-result-icon { font-size: 48px; margin-bottom: 10px; }
+    .file-result-name { font-size: 1rem; font-weight: 600; color: #00ff88; word-break: break-all; margin-bottom: 5px; }
+    .file-result-size { font-size: 0.85rem; color: #888; }
+    .btn {
+      width: 100%; padding: 14px; border: none; border-radius: 10px;
+      font-size: 1rem; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-success { background: #00ff88; color: #000; }
+    .btn-secondary { background: #16213e; color: #eee; }
+    #error-msg { background: #ff4444; color: #fff; padding: 10px 15px; border-radius: 8px; margin-bottom: 12px; display: none; font-size: 0.9rem; }
+    #error-msg.show { display: block; }
+    .scan-indicator {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,255,136,0.9); color: #000; padding: 5px 12px; border-radius: 20px;
+      font-size: 0.75rem; font-weight: 600; opacity: 0; transition: opacity 0.1s;
+    }
+    .scan-indicator.flash { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>QRAM Decoder (Aztec)</h1>
+
+    <div id="error-msg"></div>
+
+    <div id="video-container">
+      <video id="video" autoplay playsinline></video>
+      <div id="overlay"><div id="scan-region"></div></div>
+      <div id="scan-indicator" class="scan-indicator">Packet</div>
+    </div>
+
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-value" id="blocks-received">0</div>
+        <div class="stat-label">Blocks</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="blocks-total">?</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="packets-scanned">0</div>
+        <div class="stat-label">Packets</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-value" id="speed-display">--</div>
+        <div class="stat-label">Speed</div>
+      </div>
+    </div>
+
+    <div class="status-box">
+      <div class="status-label">Status</div>
+      <div class="status-value" id="status">Initializing camera...</div>
+    </div>
+
+    <div id="result-container">
+      <div class="status-label" id="result-label">Decoded Content</div>
+      <div id="text-result">
+        <textarea id="result" readonly></textarea>
+      </div>
+      <div id="file-result" class="file-result" style="display:none">
+        <div class="file-result-icon">📄</div>
+        <div class="file-result-name" id="file-result-name"></div>
+        <div class="file-result-size" id="file-result-size"></div>
+      </div>
+    </div>
+
+    <button id="copy-btn" class="btn btn-success" style="display:none;">Copy to Clipboard</button>
+    <button id="download-btn" class="btn btn-success" style="display:none;">Download File</button>
+    <button id="save-btn" class="btn btn-success" style="display:none;">Save as File</button>
+    <button id="reset-btn" class="btn btn-secondary">Reset &amp; Scan Again</button>
+  </div>
+
+  <script>
+    // Elements
+    const video = document.getElementById('video');
+    const statusEl = document.getElementById('status');
+    const progressFill = document.getElementById('progress-fill');
+    const blocksReceivedEl = document.getElementById('blocks-received');
+    const blocksTotalEl = document.getElementById('blocks-total');
+    const packetsScannedEl = document.getElementById('packets-scanned');
+    const speedDisplayEl = document.getElementById('speed-display');
+    const resultContainer = document.getElementById('result-container');
+    const resultLabel = document.getElementById('result-label');
+    const textResult = document.getElementById('text-result');
+    const fileResult = document.getElementById('file-result');
+    const fileResultName = document.getElementById('file-result-name');
+    const fileResultSize = document.getElementById('file-result-size');
+    const resultEl = document.getElementById('result');
+    const copyBtn = document.getElementById('copy-btn');
+    const downloadBtn = document.getElementById('download-btn');
+    const saveBtn = document.getElementById('save-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const errorMsg = document.getElementById('error-msg');
+    const scanIndicator = document.getElementById('scan-indicator');
+
+    // State
+    let scanning = true;
+    let decoder = null;
+    let decodePromise = null;
+
+    let packetsScanned = 0;
+    let firstPacketTime = null;
+    let speedInterval = null;
+
+    let lastReceivedBlocks = 0;
+    let lastTotalBlocks = 0;
+    let pendingProgressUpdate = false;
+
+    let flashTimeout = null;
+    let lastPacketSignature = null;
+
+    // ZXing controls handle
+    let zxingControls = null;
+    let zxingReader = null;
+
+    // File transfer state
+    let decodedFileData = null;  // { fileName, fileData } if file transfer
+
+    // File protocol magic: "QRAMF"
+    const FILE_MAGIC = [0x51, 0x52, 0x41, 0x4D, 0x46];
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.classList.add('show');
+    }
+    function hideError() { errorMsg.classList.remove('show'); }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+    function formatSpeed(bytesPerSec) {
+      if (bytesPerSec < 1024) return bytesPerSec.toFixed(0) + ' B/s';
+      return (bytesPerSec / 1024).toFixed(1) + ' KB/s';
+    }
+
+    function flashIndicator() {
+      scanIndicator.classList.add('flash');
+      if (flashTimeout) clearTimeout(flashTimeout);
+      flashTimeout = setTimeout(() => scanIndicator.classList.remove('flash'), 150);
+    }
+
+    function startSpeedTracking() {
+      if (speedInterval) return;
+      speedInterval = setInterval(() => {
+        if (!firstPacketTime || lastTotalBlocks === 0) return;
+        const elapsed = (Date.now() - firstPacketTime) / 1000;
+        if (elapsed < 0.5) return;
+        const pps = packetsScanned / elapsed;
+        speedDisplayEl.textContent = pps.toFixed(1) + '/s';
+      }, 500);
+    }
+    function stopSpeedTracking() {
+      if (speedInterval) { clearInterval(speedInterval); speedInterval = null; }
+    }
+
+    function scheduleProgressUpdate() {
+      if (pendingProgressUpdate) return;
+      pendingProgressUpdate = true;
+      requestAnimationFrame(() => {
+        pendingProgressUpdate = false;
+        packetsScannedEl.textContent = packetsScanned;
+        blocksReceivedEl.textContent = lastReceivedBlocks;
+        blocksTotalEl.textContent = lastTotalBlocks;
+
+        const pct = lastTotalBlocks > 0 ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100) : 0;
+        progressFill.style.width = `${pct}%`;
+        statusEl.textContent = `Receiving: ${lastReceivedBlocks}/${lastTotalBlocks} blocks`;
+      });
+    }
+
+    // --- File transfer helpers ---
+    function isFileTransfer(data) {
+      if (data.length < 8) return false;
+      for (let i = 0; i < FILE_MAGIC.length; i++) if (data[i] !== FILE_MAGIC[i]) return false;
+      return true;
+    }
+    function parseFileTransfer(data) {
+      let offset = FILE_MAGIC.length;
+      const nameLen = (data[offset] << 8) | data[offset + 1];
+      offset += 2;
+      if (offset + nameLen > data.length) return null;
+      const nameBytes = data.slice(offset, offset + nameLen);
+      const fileName = new TextDecoder().decode(nameBytes);
+      offset += nameLen;
+      const fileData = data.slice(offset);
+      return { fileName, fileData };
+    }
+    function guessMimeType(fileName) {
+      const ext = fileName.split('.').pop().toLowerCase();
+      const types = {
+        txt: 'text/plain', json: 'application/json', xml: 'text/xml',
+        html: 'text/html', css: 'text/css', js: 'text/javascript',
+        yaml: 'text/yaml', yml: 'text/yaml', toml: 'text/plain',
+        ini: 'text/plain', cfg: 'text/plain', conf: 'text/plain',
+        sh: 'text/x-shellscript', py: 'text/x-python',
+        key: 'application/octet-stream', pem: 'application/x-pem-file',
+        pub: 'text/plain', csv: 'text/csv', md: 'text/markdown',
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', svg: 'image/svg+xml', pdf: 'application/pdf',
+        zip: 'application/zip', gz: 'application/gzip',
+        tar: 'application/x-tar',
+      };
+      return types[ext] || 'application/octet-stream';
+    }
+
+    // --- Completion feedback ---
+    function playCompletionChime() {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playNote(freq, startTime, duration) {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          gain.gain.setValueAtTime(0.15, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+          osc.start(startTime);
+          osc.stop(startTime + duration);
+        }
+        const now = audioCtx.currentTime;
+        playNote(659, now, 0.15);
+        playNote(880, now + 0.12, 0.2);
+        playNote(1047, now + 0.24, 0.3);
+      } catch (e) {}
+    }
+    function triggerCompletionFeedback() {
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      playCompletionChime();
+    }
+
+    // --- ZXing -> bytes helpers ---
+    function tryBase64ToBytes(s) {
+      // tolerate URL-safe base64 too
+      const t = s.trim().replace(/-/g, '+').replace(/_/g, '/');
+      if (!/^[A-Za-z0-9+/=\s]+$/.test(t)) return null;
+      try {
+        const bin = atob(t);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+        return out;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function zxingResultToBytes(result) {
+      // Prefer raw bytes if available (depends on build/format)
+      try {
+        if (result && typeof result.getRawBytes === 'function') {
+          const rb = result.getRawBytes();
+          if (rb && rb.length) return new Uint8Array(rb);
+        }
+      } catch (e) {}
+
+      // Fall back to text
+      const text = result?.getText ? result.getText() : (result?.text || '');
+      if (!text) return null;
+
+      // If your Aztec encoder can emit base64 payloads, this will preserve binary perfectly.
+      const b64 = tryBase64ToBytes(text);
+      if (b64) return b64;
+
+      // Otherwise treat as UTF-8 bytes
+      return new TextEncoder().encode(text);
+    }
+
+    // --- QRAM init ---
+    async function init() {
+      scanning = true;
+
+      decoder = new qram.Decoder();
+      decodePromise = decoder.decode();
+
+      decodePromise.then(result => onComplete(result)).catch(err => {
+        if (err.name !== 'AbortError') showError('Decode error: ' + err.message);
+      });
+
+      await initCameraAndZXing();
+    }
+
+    async function initCameraAndZXing() {
+      try {
+        // @zxing/browser UMD global is typically ZXingBrowser
+        if (!window.ZXingBrowser) throw new Error('ZXingBrowser not found. Check zxing-browser.min.js include.');
+
+        // Limit to AZTEC only for speed/reliability
+        const hints = new Map();
+        // These enums live under ZXingBrowser in the UMD bundle
+        if (ZXingBrowser.DecodeHintType && ZXingBrowser.BarcodeFormat) {
+          hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [ZXingBrowser.BarcodeFormat.AZTEC]);
+          hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+        }
+
+        zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, 250);
+
+        statusEl.textContent = 'Starting camera...';
+
+        // decodeFromVideoDevice returns controls you can stop()
+        zxingControls = await zxingReader.decodeFromVideoDevice(
+          null, // default camera
+          video,
+          async (result, err, controls) => {
+            if (!scanning) return;
+
+            if (result) {
+              try {
+                const packetData = zxingResultToBytes(result);
+                if (!packetData || packetData.length === 0) return;
+
+                // Skip duplicate consecutive frames
+                const len = packetData.length;
+                const step = Math.max(1, len >> 5);
+                let sig = len;
+                for (let i = 0; i < len; i += step) sig = (sig * 31 + packetData[i]) | 0;
+                if (sig === lastPacketSignature) return;
+                lastPacketSignature = sig;
+
+                const progress = await decoder.enqueue(packetData);
+
+                packetsScanned++;
+                flashIndicator();
+
+                if (!firstPacketTime) {
+                  firstPacketTime = Date.now();
+                  startSpeedTracking();
+                  hideError();
+                  statusEl.textContent = 'Point camera at animated Aztec...';
+                }
+
+                if (progress) {
+                  lastReceivedBlocks = progress.receivedBlocks;
+                  lastTotalBlocks = progress.totalBlocks;
+                  scheduleProgressUpdate();
+                }
+              } catch (e) {
+                // ignore packet errors (not qram payload, partial, etc.)
+              }
+            } else if (err) {
+              // NotFound is normal while scanning; ignore noise
+            }
+          }
+        );
+
+        statusEl.textContent = 'Point camera at animated Aztec...';
+      } catch (err) {
+        scanning = false;
+        if (decoder) decoder.cancel();
+        showError('Camera/ZXing init failed: ' + (err?.message || err));
+        console.error(err);
+      }
+    }
+
+    function onComplete(result) {
+      scanning = false;
+      stopSpeedTracking();
+
+      const data = result.data;
+
+      if (firstPacketTime) {
+        const elapsed = (Date.now() - firstPacketTime) / 1000;
+        if (elapsed > 0) speedDisplayEl.textContent = formatSpeed(data.length / elapsed);
+      }
+
+      if (isFileTransfer(data)) {
+        const parsed = parseFileTransfer(data);
+        if (parsed) {
+          decodedFileData = parsed;
+          handleFileResult(parsed);
+          return;
+        }
+      }
+
+      handleTextResult(data);
+    }
+
+    function handleTextResult(data) {
+      const text = new TextDecoder().decode(data);
+
+      resultLabel.textContent = 'Decoded Content';
+      textResult.style.display = '';
+      fileResult.style.display = 'none';
+      resultEl.value = text;
+      resultContainer.classList.add('show');
+      copyBtn.style.display = 'block';
+      saveBtn.style.display = 'block';
+      downloadBtn.style.display = 'none';
+
+      statusEl.textContent = `Complete! ${formatBytes(data.length)} received.`;
+      progressFill.style.width = '100%';
+
+      triggerCompletionFeedback();
+      stopZXing();
+    }
+
+    function handleFileResult(parsed) {
+      resultLabel.textContent = 'Received File';
+      textResult.style.display = 'none';
+      fileResult.style.display = '';
+      fileResultName.textContent = parsed.fileName;
+      fileResultSize.textContent = formatBytes(parsed.fileData.length);
+      resultContainer.classList.add('show');
+      downloadBtn.style.display = 'block';
+      copyBtn.style.display = 'none';
+      saveBtn.style.display = 'none';
+
+      statusEl.textContent = `Complete! File "${parsed.fileName}" (${formatBytes(parsed.fileData.length)}) received.`;
+      progressFill.style.width = '100%';
+
+      triggerCompletionFeedback();
+      stopZXing();
+    }
+
+    function stopZXing() {
+      try {
+        if (zxingControls && typeof zxingControls.stop === 'function') zxingControls.stop();
+      } catch (e) {}
+      zxingControls = null;
+
+      // Some builds also allow reader.reset()
+      try {
+        if (zxingReader && typeof zxingReader.reset === 'function') zxingReader.reset();
+      } catch (e) {}
+    }
+
+    // Copy to clipboard
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(resultEl.value);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy to Clipboard', 2000);
+      } catch (err) {
+        resultEl.select();
+        document.execCommand('copy');
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy to Clipboard', 2000);
+      }
+    });
+
+    // Download file (for file transfers)
+    downloadBtn.addEventListener('click', () => {
+      if (!decodedFileData) return;
+      const mime = guessMimeType(decodedFileData.fileName);
+      const blob = new Blob([decodedFileData.fileData], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = decodedFileData.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Save as file (for text transfers)
+    saveBtn.addEventListener('click', () => {
+      const blob = new Blob([resultEl.value], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'qram-transfer.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Reset
+    resetBtn.addEventListener('click', () => {
+      scanning = false;
+      stopSpeedTracking();
+
+      if (decoder) decoder.cancel();
+      stopZXing();
+
+      // Reset state
+      packetsScanned = 0;
+      lastPacketSignature = null;
+      firstPacketTime = null;
+      lastReceivedBlocks = 0;
+      lastTotalBlocks = 0;
+      decodedFileData = null;
+      pendingProgressUpdate = false;
+
+      // Reset UI
+      resultContainer.classList.remove('show');
+      textResult.style.display = '';
+      fileResult.style.display = 'none';
+      copyBtn.style.display = 'none';
+      downloadBtn.style.display = 'none';
+      saveBtn.style.display = 'none';
+      progressFill.style.width = '0%';
+      blocksReceivedEl.textContent = '0';
+      blocksTotalEl.textContent = '?';
+      packetsScannedEl.textContent = '0';
+      speedDisplayEl.textContent = '--';
+      hideError();
+
+      init();
+    });
+
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+
+    init();
+  </script>
+</body>
+</html>
