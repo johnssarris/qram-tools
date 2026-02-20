@@ -14,7 +14,7 @@
 
   <!-- ZXing (Aztec-capable) -->
   <!-- Put the UMD bundle here for offline use: ./libs/zxing-browser.min.js -->
-  <!-- <script src="./libs/zxing-browser.min.js"></script> -->
+  <!-- script src="./libs/zxing-browser.min.js"></script> -->
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 
   <style>
@@ -27,10 +27,19 @@
     h1 { text-align: center; margin-bottom: 15px; font-size: 1.4rem; color: #00d4ff; }
 
     #video-container {
-      position: relative; width: 100%; background: #000;
+      position: relative; width: 100%;
+      background: #000;
       border-radius: 12px; overflow: hidden; margin-bottom: 15px;
+      /* DON'T force square — let it match video when possible */
+      aspect-ratio: 1;
     }
-    #video { width: 100%; height: 100%; object-fit: cover; }
+    #video {
+      width: 100%;
+      height: 100%;
+      /* IMPORTANT: avoid cropping the MP4/camera feed */
+      object-fit: contain;
+      background: #000;
+    }
 
     #overlay {
       position: absolute; top: 0; left: 0; right: 0; bottom: 0;
@@ -175,7 +184,7 @@
     const videoFileInput = document.getElementById('video-file-input');
 
     // State
-    let scanning = true;
+    let scanning = false;
     let decoder = null;
     let decodePromise = null;
 
@@ -319,33 +328,20 @@
       playCompletionChime();
     }
 
-    // --- ZXing -> bytes helpers ---
-    function tryBase64ToBytes(s) {
-      const t = s.trim().replace(/-/g, '+').replace(/_/g, '/');
-      if (!/^[A-Za-z0-9+/=\s]+$/.test(t)) return null;
-      try {
-        const bin = atob(t);
-        const out = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
-        return out;
-      } catch (e) { return null; }
+    // --- Base64URL decode (packet text -> bytes) ---
+    function base64UrlToBytes(s) {
+      const t = (s || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+      const padded = t + '==='.slice((t.length + 3) % 4);
+      const bin = atob(padded);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+      return out;
     }
 
     function zxingResultToBytes(result) {
-      try {
-        if (result && typeof result.getRawBytes === 'function') {
-          const rb = result.getRawBytes();
-          if (rb && rb.length) return new Uint8Array(rb);
-        }
-      } catch (e) {}
-
       const text = result?.getText ? result.getText() : (result?.text || '');
       if (!text) return null;
-
-      const b64 = tryBase64ToBytes(text);
-      if (b64) return b64;
-
-      return new TextEncoder().encode(text);
+      return base64UrlToBytes(text);
     }
 
     // --- Stop helpers ---
@@ -366,14 +362,12 @@
       stopZXing();
       stopCamera();
       try {
-        // stop local file playback
         if (video.src && video.src.startsWith('blob:')) URL.revokeObjectURL(video.src);
       } catch (e) {}
       video.srcObject = null;
-      // keep video element alive; don't blank src unless you want a black frame
     }
 
-    // --- QRAM init ---
+    // --- Decoder init ---
     function initDecoder() {
       decoder = new qram.Decoder();
       decodePromise = decoder.decode().then(onComplete).catch(err => {
@@ -412,7 +406,6 @@
         hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [ZXingBrowser.BarcodeFormat.AZTEC]);
         hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
       }
-      // second arg is timeBetweenScansMillis-ish (varies by build); 250 is friendly to iPhone
       zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, 250);
     }
 
@@ -487,7 +480,6 @@
 
         statusEl.textContent = 'Point camera at animated Aztec...';
 
-        // Decode from video device into the <video> element
         zxingControls = await zxingReader.decodeFromVideoDevice(
           null,
           video,
@@ -528,7 +520,7 @@
         });
 
         await video.play();
-        
+
         // Match container aspect ratio to the video's native aspect ratio
         const vc = document.getElementById('video-container');
         if (video.videoWidth && video.videoHeight) {
@@ -537,7 +529,6 @@
 
         statusEl.textContent = 'Scanning video...';
 
-        // Decode frames from the existing <video> element
         zxingControls = await zxingReader.decodeFromVideoElement(
           video,
           (result, err, controls) => { if (result) onZXingResult(result); }
@@ -654,7 +645,6 @@
       const file = videoFileInput.files && videoFileInput.files[0];
       if (!file) return;
       await startVideoFileMode(file);
-      // allow selecting same file again later
       videoFileInput.value = '';
     });
 
@@ -672,7 +662,7 @@
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
-    // Start idle (user chooses camera or file)
+    // Start idle
     resetStateAndUI();
     statusEl.textContent = 'Ready. Choose Camera or Video File.';
   </script>
