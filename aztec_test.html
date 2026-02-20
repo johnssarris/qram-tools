@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aztec Barcode Test</title>
+  <title>2D Barcode Stream Test (bwip-js + qram)</title>
 
   <!-- Libraries -->
   <script src="./libs/qram.min.js"></script>
@@ -16,36 +16,55 @@
     #start{background:#00ff4c;color:#000}
     #stop{background:#ff4b4b;color:#fff}
     #start:disabled,#stop:disabled{opacity:.55;cursor:not-allowed}
-    canvas{display:block;margin:20px auto;background:#fff;border-radius:0}
+    canvas{display:block;margin:20px auto;background:#fff;border-radius:0;max-width:100%;height:auto}
     #stats{text-align:center;font-size:14px;color:#b7b7b7;min-height:20px}
     #err{white-space:pre-wrap;background:#2a1a1a;border:1px solid #5a2a2a;color:#ffd0d0;padding:10px;border-radius:8px;display:none;margin-top:10px;font-family:ui-monospace,monospace;font-size:12px}
     .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:12px 0}
     .row label{color:#c8c8c8;display:flex;gap:6px;align-items:center}
     .row input[type="number"],
     .row select{padding:6px 8px;background:#0d1117;border:1px solid #333;color:#eee;border-radius:6px}
-    .row input[type="number"]{width:80px}
+    .row input[type="number"]{width:90px}
     .hint{color:#8f8f8f;font-size:12px;margin-top:6px}
     h2{margin:0 0 10px 0}
-
     .mode-tabs{display:flex;gap:0;margin-bottom:12px}
     .mode-tab{padding:10px 24px;background:#16213e;color:#888;border:1px solid #333;cursor:pointer;font-size:14px;font-weight:600;transition:all .15s}
     .mode-tab:first-child{border-radius:8px 0 0 8px}
     .mode-tab:last-child{border-radius:0 8px 8px 0}
     .mode-tab.active{background:#00d4ff;color:#000;border-color:#00d4ff}
     .mode-tab:not(.active):hover{background:#1e2d4a}
-
     #hex-input{display:none}
     #hex-input textarea{color:#ff9;height:120px}
-
     .auto-label{color:#c8c8c8;display:flex;gap:4px;align-items:center;font-size:13px;cursor:pointer}
     .auto-label input[type="checkbox"]{accent-color:#00d4ff;width:16px;height:16px;cursor:pointer}
     #blk:disabled{opacity:.6;cursor:not-allowed}
     #data-size{font-size:12px;color:#888;margin-top:4px}
+
+    /* Mat / background options */
+    .mat-wrap{display:flex;justify-content:center;align-items:center;margin:20px 0}
+    #mat{
+      display:inline-flex;
+      background:#fff;           /* default white mat */
+      padding:24px;              /* default thick quiet zone around the barcode */
+      border-radius:8px;
+      box-shadow:0 0 0 1px rgba(0,0,0,.25);
+    }
+    #mat.darkless{
+      background:transparent;
+      padding:0;
+      box-shadow:none;
+      border-radius:0;
+    }
+    #mat.allwhite{
+      background:#fff;
+      padding:24px;
+      box-shadow:none;
+      border-radius:0;
+    }
   </style>
 </head>
 
 <body>
-  <h2>Aztec Barcode Test (bwip-js + qram) — Base64URL packets</h2>
+  <h2>2D Barcode Stream Test (bwip-js + qram) — Base64URL packets</h2>
 
   <div class="mode-tabs">
     <div class="mode-tab active" data-mode="text">Text</div>
@@ -53,7 +72,7 @@
   </div>
 
   <div id="text-input">
-    <textarea id="txt" placeholder="Enter text to encode as animated Aztec barcodes...">Hello, Aztec!</textarea>
+    <textarea id="txt" placeholder="Enter data to stream...">Hello, 2D!</textarea>
   </div>
 
   <div id="hex-input">
@@ -67,21 +86,44 @@
     <button id="start">▶ Start</button>
     <button id="stop" disabled>■ Stop</button>
 
-    <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
-    <label>Block:<input type="number" id="blk" value="200" min="50" max="2000"></label>
+    <label>FPS:<input type="number" id="fps" value="12" min="1" max="60"></label>
+    <label>Block:<input type="number" id="blk" value="120" min="50" max="2000"></label>
     <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
   </div>
 
   <div class="row">
-    <label>EC %:
-      <input type="number" id="eclevel" value="23" min="1" max="99" title="Error correction percentage (default 23%)">
+    <label>Barcode:
+      <select id="bcid" title="Barcode type (bwip-js bcid)">
+        <option value="azteccode" selected>Aztec</option>
+        <option value="datamatrix">Data Matrix</option>
+        <option value="qrcode">QR Code</option>
+        <option value="pdf417">PDF417</option>
+      </select>
     </label>
 
-    <label>Scale:
-      <input type="number" id="scale" value="4" min="1" max="20" title="Module scale factor">
+    <label>Mat:
+      <select id="matmode" title="Background/mat around symbol">
+        <option value="white-mat" selected>White Mat</option>
+        <option value="none">No Mat</option>
+        <option value="all-white">All White</option>
+      </select>
     </label>
 
-    <label>Format:
+    <label>Mat pad:
+      <input type="number" id="matpad" value="24" min="0" max="80" title="Mat padding in px">
+    </label>
+  </div>
+
+  <div class="row" id="aztec-opts">
+    <label>Aztec EC %:
+      <input type="number" id="eclevel" value="33" min="0" max="99" title="Error correction percentage (Aztec)">
+    </label>
+
+    <label>Aztec scale:
+      <input type="number" id="scale" value="2" min="1" max="20" title="Module scale factor">
+    </label>
+
+    <label>Aztec format:
       <select id="format" title="Aztec format">
         <option value="" selected>Auto</option>
         <option value="full">Full</option>
@@ -89,17 +131,55 @@
       </select>
     </label>
 
-    <label>Layers:
-      <input type="number" id="layers" value="0" min="0" max="32" title="Number of data layers (0 = auto)">
+    <label>Aztec layers:
+      <input type="number" id="layers" value="0" min="0" max="32" title="Data layers (0 = auto)">
     </label>
   </div>
 
-  <div class="hint">
-    EC% controls the error correction overhead (higher = more resilient, larger symbol).
-    Scale controls the pixel size of each module. Layers 0 = automatic sizing.
+  <div class="row" id="qr-opts" style="display:none">
+    <label>QR EC:
+      <select id="qrec">
+        <option value="L">L</option>
+        <option value="M" selected>M</option>
+        <option value="Q">Q</option>
+        <option value="H">H</option>
+      </select>
+    </label>
+
+    <label>QR scale:
+      <input type="number" id="qrscale" value="2" min="1" max="20">
+    </label>
   </div>
 
-  <canvas id="barcode" width="350" height="350"></canvas>
+  <div class="row" id="dm-opts" style="display:none">
+    <label>DM scale:
+      <input type="number" id="dmscale" value="2" min="1" max="20">
+    </label>
+  </div>
+
+  <div class="row" id="pdf-opts" style="display:none">
+    <label>PDF scale:
+      <input type="number" id="pdfscale" value="2" min="1" max="10">
+    </label>
+    <label>PDF cols:
+      <input type="number" id="pdfcols" value="0" min="0" max="30" title="0=auto">
+    </label>
+    <label>PDF rows:
+      <input type="number" id="pdfrows" value="0" min="0" max="90" title="0=auto">
+    </label>
+  </div>
+
+  <div class="hint" id="hint">
+    Base64URL packets are used so ZXing can reliably decode the content as text.
+    White Mat adds an extra quiet zone that often helps decoding in HEVC videos.
+  </div>
+
+  <div class="mat-wrap">
+    <div id="mat">
+      <canvas id="barcode" width="350" height="350"></canvas>
+    </div>
+  </div>
+
   <div id="stats"></div>
   <div id="err"></div>
 
@@ -110,10 +190,6 @@
   const elFPS     = document.getElementById('fps');
   const elBlk     = document.getElementById('blk');
   const elAutoBlk = document.getElementById('auto-blk');
-  const elEcLevel = document.getElementById('eclevel');
-  const elScale   = document.getElementById('scale');
-  const elFormat  = document.getElementById('format');
-  const elLayers  = document.getElementById('layers');
   const elStart   = document.getElementById('start');
   const elStop    = document.getElementById('stop');
   const elCanvas  = document.getElementById('barcode');
@@ -121,6 +197,33 @@
   const elErr     = document.getElementById('err');
   const elDataSize = document.getElementById('data-size');
   const modeTabs  = document.querySelectorAll('.mode-tab');
+
+  const elBcid    = document.getElementById('bcid');
+  const elMatMode = document.getElementById('matmode');
+  const elMatPad  = document.getElementById('matpad');
+  const elMat     = document.getElementById('mat');
+
+  // Aztec opts
+  const elAztecOpts = document.getElementById('aztec-opts');
+  const elEcLevel = document.getElementById('eclevel');
+  const elScale   = document.getElementById('scale');
+  const elFormat  = document.getElementById('format');
+  const elLayers  = document.getElementById('layers');
+
+  // QR opts
+  const elQrOpts = document.getElementById('qr-opts');
+  const elQrEc   = document.getElementById('qrec');
+  const elQrScale= document.getElementById('qrscale');
+
+  // DataMatrix opts
+  const elDmOpts = document.getElementById('dm-opts');
+  const elDmScale= document.getElementById('dmscale');
+
+  // PDF417 opts
+  const elPdfOpts = document.getElementById('pdf-opts');
+  const elPdfScale= document.getElementById('pdfscale');
+  const elPdfCols = document.getElementById('pdfcols');
+  const elPdfRows = document.getElementById('pdfrows');
 
   let currentMode = 'text';
   let running = false;
@@ -149,10 +252,7 @@
     elErr.style.display = 'block';
     console.error(msg, errObj);
   }
-  function clearError() {
-    elErr.textContent = '';
-    elErr.style.display = 'none';
-  }
+  function clearError() { elErr.textContent = ''; elErr.style.display = 'none'; }
 
   function hexToBytes(hex) {
     hex = hex.replace(/0x|[:\s,]/gi, '');
@@ -200,11 +300,43 @@
   function bytesToBase64Url(u8) {
     let bin = '';
     for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
-    // btoa expects latin-1 binary string
     const b64 = btoa(bin);
     return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
   }
 
+  // --- Mat / background ---
+  function applyMatSettings() {
+    const mode = elMatMode.value;
+    const pad = Math.max(0, Math.min(80, parseInt(elMatPad.value, 10) || 0));
+    elMat.style.padding = pad + 'px';
+
+    elMat.classList.remove('darkless', 'allwhite');
+
+    if (mode === 'none') {
+      elMat.classList.add('darkless');
+      elMat.style.padding = '0px';
+    } else if (mode === 'all-white') {
+      // make the entire page background white (extreme test)
+      elMat.classList.add('allwhite');
+    }
+    document.body.style.background = (mode === 'all-white') ? '#ffffff' : '#1a1a2e';
+    document.body.style.color = (mode === 'all-white') ? '#111' : '#eee';
+  }
+
+  elMatMode.addEventListener('change', applyMatSettings);
+  elMatPad.addEventListener('input', applyMatSettings);
+
+  // --- Barcode selection UI ---
+  function updateBarcodeUI() {
+    const bcid = elBcid.value;
+    elAztecOpts.style.display = (bcid === 'azteccode') ? '' : 'none';
+    elQrOpts.style.display    = (bcid === 'qrcode') ? '' : 'none';
+    elDmOpts.style.display    = (bcid === 'datamatrix') ? '' : 'none';
+    elPdfOpts.style.display   = (bcid === 'pdf417') ? '' : 'none';
+  }
+  elBcid.addEventListener('change', updateBarcodeUI);
+
+  // --- Data size / auto block ---
   elAutoBlk.addEventListener('change', () => {
     elBlk.disabled = elAutoBlk.checked;
     if (elAutoBlk.checked) updateDataSize();
@@ -248,26 +380,47 @@
     }
   }
 
-  // --- Render a single packet as Aztec barcode (Base64URL text) ---
-  function renderAztec(packetData) {
-    const ecLevel = Math.max(1, Math.min(99, parseInt(elEcLevel.value, 10) || 23));
-    const scale   = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 4));
-    const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
-    const format  = elFormat.value;
-
+  // --- Render a single packet as 2D barcode (Base64URL text) ---
+  function renderPacketAsBarcode(packetData) {
     const payloadText = bytesToBase64Url(packetData);
+    const bcid = elBcid.value;
 
     const opts = {
-      bcid:        'azteccode',
-      text:        payloadText,
-      scale:       scale,
-      eclevel:     ecLevel,
+      bcid,
+      text: payloadText,
       includetext: false,
     };
 
-    if (layers > 0) opts.layers = layers;
-    if (format === 'full') opts.format = 'full';
-    else if (format === 'compact') opts.format = 'compact';
+    // Per-barcode option mapping
+    if (bcid === 'azteccode') {
+      const ecLevel = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
+      const scale   = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
+      const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
+      const format  = elFormat.value;
+
+      opts.scale = scale;
+      opts.eclevel = ecLevel;
+      if (layers > 0) opts.layers = layers;
+      if (format === 'full') opts.format = 'full';
+      else if (format === 'compact') opts.format = 'compact';
+    }
+    else if (bcid === 'qrcode') {
+      const scale = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
+      opts.scale = scale;
+      opts.eclevel = elQrEc.value;   // L/M/Q/H
+    }
+    else if (bcid === 'datamatrix') {
+      const scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
+      opts.scale = scale;
+    }
+    else if (bcid === 'pdf417') {
+      const scale = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
+      const cols = Math.max(0, Math.min(30, parseInt(elPdfCols.value, 10) || 0));
+      const rows = Math.max(0, Math.min(90, parseInt(elPdfRows.value, 10) || 0));
+      opts.scale = scale;
+      if (cols > 0) opts.columns = cols;
+      if (rows > 0) opts.rows = rows;
+    }
 
     bwipjs.toCanvas(elCanvas, opts);
   }
@@ -277,6 +430,8 @@
     if (running) return;
     clearError();
     clearCanvas();
+    applyMatSettings();
+    updateBarcodeUI();
 
     if (!window.qram) { showError("qram library didn't load."); return; }
     if (typeof bwipjs === 'undefined') { showError("bwip-js library didn't load."); return; }
@@ -287,8 +442,8 @@
       return;
     }
 
-    const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 20));
-    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 200));
+    const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 12));
+    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 120));
     const delay = 1000 / fps;
 
     let enc;
@@ -316,8 +471,8 @@
         const { value: pkt, done } = await reader.read();
         if (done) break;
 
-        try { renderAztec(pkt.data); }
-        catch (e) { showError('Aztec render error (bwip-js failed).', e); break; }
+        try { renderPacketAsBarcode(pkt.data); }
+        catch (e) { showError('Render error (bwip-js failed).', e); break; }
 
         n++;
         elStats.textContent = `${formatBytes(data.length)}, ${blocks} blocks, packet #${n}`;
@@ -346,8 +501,11 @@
   elStart.addEventListener('click', start);
   elStop.addEventListener('click', stop);
 
+  // Init
   clearCanvas();
   updateDataSize();
+  updateBarcodeUI();
+  applyMatSettings();
 })();
 </script>
 </body>
