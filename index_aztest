@@ -14,10 +14,8 @@
 
   <!-- ZXing (Aztec-capable) -->
   <!-- Put the UMD bundle here for offline use: ./libs/zxing-browser.min.js -->
-  <script src="./libs/zxing-browser.min.js"></script>
-  <!-- CDN quick test alternative:
+  <!-- <script src="./libs/zxing-browser.min.js"></script> -->
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
-  -->
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
