@@ -1,0 +1,47 @@
+[
+  {
+    "label": "qr-block80",
+    "barcodeType": "qrcode",
+    "encoderLib": "bwip-js",
+    "packetEncoding": "base64url",
+    "blockSize": 80,
+    "fps": 12,
+    "payloadSize": 500,
+    "ecLevel": "M",
+    "scale": 2,
+    "timeoutSec": 90,
+    "matMode": "white-mat",
+    "matPad": 24,
+    "env": { "notes": "qr baseline run 1 of 3" }
+  },
+  {
+    "label": "qr-block120",
+    "barcodeType": "qrcode",
+    "encoderLib": "bwip-js",
+    "packetEncoding": "base64url",
+    "blockSize": 120,
+    "fps": 12,
+    "payloadSize": 500,
+    "ecLevel": "M",
+    "scale": 2,
+    "timeoutSec": 90,
+    "matMode": "white-mat",
+    "matPad": 24,
+    "env": { "notes": "qr baseline run 2 of 3" }
+  },
+  {
+    "label": "qr-block200",
+    "barcodeType": "qrcode",
+    "encoderLib": "bwip-js",
+    "packetEncoding": "base64url",
+    "blockSize": 200,
+    "fps": 12,
+    "payloadSize": 500,
+    "ecLevel": "M",
+    "scale": 2,
+    "timeoutSec": 90,
+    "matMode": "white-mat",
+    "matPad": 24,
+    "env": { "notes": "qr baseline run 3 of 3" }
+  }
+]
