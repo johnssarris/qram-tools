@@ -42,12 +42,17 @@
 
     #copy-config { background: #16213e; border: 1px solid #444; color: #eee; font-size: 13px; padding: 7px 14px; }
     #copy-config:hover:not(:disabled) { background: #1e2d4a; }
+    #download-config { background: #16213e; border: 1px solid #00d4ff; color: #00d4ff; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    #download-config:hover:not(:disabled) { background: #1e2d4a; }
+    #btn-batch-skip { background: #ff8c00; color: #000; }
 
     .mat-wrap { display: flex; justify-content: center; margin: 12px 0; }
     #mat {
       display: inline-flex; background: #fff; padding: 24px;
       border-radius: 8px; box-shadow: 0 0 0 1px rgba(0,0,0,.25);
+      max-width: 100%; box-sizing: border-box; overflow: hidden;
     }
+    #barcode { display: block; max-width: 100%; height: auto !important; }
     #mat.no-mat   { background: transparent; padding: 0; box-shadow: none; border-radius: 0; }
     #mat.all-white { background: #fff; padding: 24px; box-shadow: none; border-radius: 0; }
 
@@ -212,6 +217,7 @@
     <textarea id="config-json" readonly></textarea>
     <div class="row" style="margin-top:8px">
       <button id="copy-config">Copy Config JSON</button>
+      <button id="download-config">⬇ Download Config JSON</button>
       <span class="hint">Paste into the decoder or save for later analysis.</span>
     </div>
   </div>
@@ -222,6 +228,7 @@
     <div class="row">
       <button id="btn-batch">Load Batch Config</button>
       <button id="btn-batch-stop" disabled>Stop Batch</button>
+      <button id="btn-batch-skip" disabled>Skip to Next →</button>
       <input type="file" id="batch-file-input" accept=".json,application/json">
       <span class="hint">Upload or paste a JSON array of test configs.</span>
     </div>
@@ -310,7 +317,8 @@
   const elErr         = document.getElementById('err');
   const elConfigJson  = document.getElementById('config-json');
   const elConfigSec   = document.getElementById('config-section');
-  const elCopyConfig  = document.getElementById('copy-config');
+  const elCopyConfig      = document.getElementById('copy-config');
+  const elDownloadConfig  = document.getElementById('download-config');
   const elRunIdDisplay = document.getElementById('run-id-display');
   const elReadyBadge   = document.getElementById('ready-badge');
 
@@ -320,8 +328,9 @@
   const elPdfOpts   = document.getElementById('pdf-opts');
 
   // Batch elements
-  const elBatchBtn      = document.getElementById('btn-batch');
-  const elBatchStop     = document.getElementById('btn-batch-stop');
+  const elBatchBtn       = document.getElementById('btn-batch');
+  const elBatchStop      = document.getElementById('btn-batch-stop');
+  const elBatchSkip      = document.getElementById('btn-batch-skip');
   const elBatchFileInput = document.getElementById('batch-file-input');
   const elBatchPaste    = document.getElementById('batch-paste');
   const elBatchStatus   = document.getElementById('batch-status');
@@ -340,10 +349,11 @@
   let runTimeoutTimer  = null;
 
   // Batch state
-  let batchRunning     = false;
+  let batchRunning         = false;
   let batchCancelRequested = false;
-  let batchConfigs     = [];
-  let batchIndex       = 0;
+  let batchSkipRequested   = false;
+  let batchConfigs         = [];
+  let batchIndex           = 0;
 
   // === Helpers ===
   function generateRunId() {
@@ -382,6 +392,22 @@
     return (n / 1048576).toFixed(1) + ' MB';
   }
 
+  function getTimestampStr() {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  function collectScreenMetadata() {
+    return {
+      screenWidth:      screen.width,
+      screenHeight:     screen.height,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      colorDepth:       screen.colorDepth,
+      userAgent:        navigator.userAgent,
+      platform:         navigator.platform || null,
+    };
+  }
+
   function showError(msg, errObj) {
     const extra = errObj ? '\n\n' + (errObj.stack || String(errObj)) : '';
     elErr.textContent = String(msg) + extra;
@@ -391,11 +417,12 @@
   function clearError() { elErr.textContent = ''; elErr.style.display = 'none'; }
 
   function setButtons(isRunning, hasPayload) {
-    elGenerate.disabled = isRunning || batchRunning;
-    elStart.disabled    = isRunning || batchRunning || !hasPayload;
-    elStop.disabled     = !isRunning;
-    elBatchBtn.disabled = isRunning || batchRunning;
+    elGenerate.disabled  = isRunning || batchRunning;
+    elStart.disabled     = isRunning || batchRunning || !hasPayload;
+    elStop.disabled      = !isRunning;
+    elBatchBtn.disabled  = isRunning || batchRunning;
     elBatchStop.disabled = !batchRunning;
+    elBatchSkip.disabled = !batchRunning;
   }
 
   // === Barcode type UI ===
@@ -645,6 +672,7 @@
       matMode:         baseCfg.matMode || 'white-mat',
       matPad:          baseCfg.matPad != null ? baseCfg.matPad : 24,
       env:             baseCfg.env || {},
+      screen:          collectScreenMetadata(),
     };
 
     // Barcode-specific config
@@ -738,6 +766,7 @@
     const blocks    = config.blocks;
     const payloadSz = payload.length;
     let timedOut    = false;
+    let canvasCaptured = false;
 
     // Set up per-run timeout
     runTimeoutTimer = setTimeout(() => {
@@ -763,8 +792,17 @@
           catch (e) { showError('Render error: ' + e.message, e); break; }
         }
 
+        // Capture rendered canvas dimensions after first successful render (Task 4)
+        if (!canvasCaptured) {
+          canvasCaptured = true;
+          config.renderedCanvasSize = { width: elCanvas.width, height: elCanvas.height };
+          elConfigJson.value = JSON.stringify(config, null, 2);
+        }
+
         seqNum++;
-        elStats.textContent = `Streaming — run ${runIdHex} | pkt #${seqNum} | ${formatBytes(payloadSz)} | ${blocks} blocks`;
+        const cs = config.renderedCanvasSize;
+        const canvasStr = cs ? ` | canvas ${cs.width}×${cs.height}px` : '';
+        elStats.textContent = `Streaming — run ${runIdHex} | pkt #${seqNum} | ${formatBytes(payloadSz)} | ${blocks} blocks${canvasStr}`;
 
         await new Promise(ok => setTimeout(ok, delay));
       }
@@ -822,6 +860,31 @@
     }
   });
 
+  // === Download Config JSON (Task 3) ===
+  elDownloadConfig.addEventListener('click', () => {
+    const text = elConfigJson.value;
+    if (!text) return;
+    let filename;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        filename = `qram-encoder-batch-${getTimestampStr()}.json`;
+      } else {
+        const rid = (parsed && parsed.runId) || currentRunIdHex;
+        filename = rid ? `qram-encoder-${rid}.json` : 'qram-encoder-config.json';
+      }
+    } catch (_) {
+      filename = 'qram-encoder-config.json';
+    }
+    const blob = new Blob([text], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
   // === Batch Mode ===
   function parseBatchConfigs(jsonStr) {
     const arr = JSON.parse(jsonStr);
@@ -831,10 +894,11 @@
   }
 
   async function runBatch(configs) {
-    batchRunning = true;
+    batchRunning         = true;
     batchCancelRequested = false;
-    batchConfigs = configs;
-    batchIndex   = 0;
+    batchSkipRequested   = false;
+    batchConfigs         = configs;
+    batchIndex           = 0;
     setButtons(false, false);
 
     const allConfigs = [];
@@ -842,6 +906,7 @@
     for (let i = 0; i < configs.length; i++) {
       if (batchCancelRequested) break;
       batchIndex = i;
+      batchSkipRequested = false; // Reset at start of each run (Task 9)
 
       const batchCfg = configs[i];
       const label = batchCfg.label || `Run ${i + 1}`;
@@ -891,7 +956,7 @@
 
         const pauseSec = 4;
         for (let s = pauseSec; s > 0; s--) {
-          if (batchCancelRequested) break;
+          if (batchCancelRequested || batchSkipRequested) break;
           elBatchCountdown.textContent = `Next run in ${s}...`;
           await new Promise(ok => setTimeout(ok, 1000));
         }
@@ -900,8 +965,9 @@
     }
 
     // Done
-    batchRunning = false;
+    batchRunning         = false;
     batchCancelRequested = false;
+    batchSkipRequested   = false;
     elBatchStatus.innerHTML = `<strong>Batch complete</strong> — ${configs.length} runs <span class="state-indicator state-done">done</span>`;
     elBatchCountdown.textContent = '';
     setButtons(false, !!currentPayload);
@@ -949,6 +1015,20 @@
     try { reader?.cancel(); } catch (_) {}
     try { stream?.cancel?.(); } catch (_) {}
     elBatchStatus.innerHTML += ' — <strong>STOPPED</strong>';
+  });
+
+  // Skip to Next — cancels current run or countdown, advances batch (Task 2)
+  elBatchSkip.addEventListener('click', () => {
+    if (!batchRunning) return;
+    batchSkipRequested = true;
+    if (running) {
+      // Currently streaming — cancel the active stream (not the whole batch)
+      cancelRequested = true;
+      if (runTimeoutTimer) { clearTimeout(runTimeoutTimer); runTimeoutTimer = null; }
+      try { reader?.cancel(); } catch (_) {}
+      try { stream?.cancel?.(); } catch (_) {}
+    }
+    // If in countdown, batchSkipRequested alone will break the countdown loop
   });
 
   // Init
