@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QRAM Merge Utility</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px;
+    }
+    .container { max-width: 960px; margin: 0 auto; }
+
+    h1 { text-align: center; margin-bottom: 18px; font-size: 1.4rem; color: #00d4ff; }
+    h3 { font-size: 0.82rem; color: #888; text-transform: uppercase;
+         letter-spacing: .05em; margin-bottom: 8px; }
+
+    .section { background: #16213e; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+
+    .inputs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 600px) { .inputs-grid { grid-template-columns: 1fr; } }
+
+    textarea {
+      width: 100%; height: 180px;
+      background: #0d1117; border: 1px solid #333; color: #0f0;
+      border-radius: 6px; padding: 8px;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px; resize: vertical;
+    }
+    textarea::placeholder { color: #444; }
+
+    input[type="file"] {
+      display: block; margin-bottom: 8px;
+      color: #aaa; font-size: 12px;
+    }
+    input[type="file"]::file-selector-button {
+      background: #16213e; border: 1px solid #444; color: #eee;
+      padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+      margin-right: 8px;
+    }
+    input[type="file"]::file-selector-button:hover { background: #1e2d4a; }
+
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+
+    button {
+      border-radius: 8px; border: none; cursor: pointer;
+      padding: 10px 18px; font-size: 0.88rem; font-weight: 700;
+    }
+    .btn-merge    { background: #00d4ff; color: #000; }
+    .btn-download { background: #00a844; color: #fff; }
+    .btn-copy     { background: #16213e; border: 1px solid #00d4ff; color: #00d4ff; }
+    .btn-copy:hover { background: #1e2d4a; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #summary {
+      font-family: ui-monospace, monospace; font-size: 13px; color: #ffd700;
+      background: #0d1117; border-radius: 6px; padding: 10px 14px; display: none;
+    }
+    #summary.show { display: block; }
+    .summary-row { display: flex; gap: 20px; flex-wrap: wrap; }
+    .summary-stat { color: #ffd700; }
+    .summary-stat span { color: #fff; font-weight: 800; }
+
+    #error-msg {
+      background: #3a1010; border: 1px solid #ff4444; color: #ff9999;
+      border-radius: 6px; padding: 10px 14px; font-size: 13px; display: none;
+      font-family: ui-monospace, monospace; white-space: pre-wrap;
+    }
+    #error-msg.show { display: block; }
+
+    #output-textarea {
+      height: 320px; margin-top: 10px;
+    }
+    .output-section { display: none; }
+    .output-section.show { display: block; }
+
+    .hint { color: #666; font-size: 11px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>QRAM Merge Utility</h1>
+  <p class="hint" style="text-align:center;margin-bottom:16px;">
+    Combines encoder config JSON and decoder result JSON into unified records matched by runId.
+  </p>
+
+  <!-- Inputs -->
+  <div class="inputs-grid">
+    <!-- Encoder config input -->
+    <div class="section">
+      <h3>Encoder Config JSON</h3>
+      <input type="file" id="encoder-file" accept=".json,application/json">
+      <textarea id="encoder-input" placeholder="Paste encoder config JSON here (single object or array)…"></textarea>
+    </div>
+
+    <!-- Decoder results input -->
+    <div class="section">
+      <h3>Decoder Results JSON</h3>
+      <input type="file" id="decoder-file" accept=".json,application/json">
+      <textarea id="decoder-input" placeholder="Paste decoder results JSON here (single object or array)…"></textarea>
+    </div>
+  </div>
+
+  <!-- Error -->
+  <div id="error-msg"></div>
+
+  <!-- Merge button -->
+  <div class="section">
+    <div class="row">
+      <button id="merge-btn" class="btn-merge">⚡ Merge</button>
+      <span class="hint">Matches records by runId. Handles single objects or arrays.</span>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div id="summary">
+    <div class="summary-row" id="summary-stats"></div>
+  </div>
+
+  <!-- Output -->
+  <div class="section output-section" id="output-section">
+    <h3>Merged JSON</h3>
+    <textarea id="output-textarea" readonly placeholder="Merged output will appear here…"></textarea>
+    <div class="row">
+      <button id="download-btn" class="btn-download" disabled>⬇ Download Merged JSON</button>
+      <button id="copy-btn" class="btn-copy" disabled>Copy Merged JSON</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const encoderFileInput  = document.getElementById('encoder-file');
+  const decoderFileInput  = document.getElementById('decoder-file');
+  const encoderTextarea   = document.getElementById('encoder-input');
+  const decoderTextarea   = document.getElementById('decoder-input');
+  const mergeBtn          = document.getElementById('merge-btn');
+  const downloadBtn       = document.getElementById('download-btn');
+  const copyBtn           = document.getElementById('copy-btn');
+  const outputTextarea    = document.getElementById('output-textarea');
+  const outputSection     = document.getElementById('output-section');
+  const summaryEl         = document.getElementById('summary');
+  const summaryStats      = document.getElementById('summary-stats');
+  const errorMsg          = document.getElementById('error-msg');
+
+  // === File loaders ===
+  encoderFileInput.addEventListener('change', async () => {
+    const file = encoderFileInput.files?.[0];
+    if (!file) return;
+    encoderTextarea.value = await file.text();
+    encoderFileInput.value = '';
+  });
+
+  decoderFileInput.addEventListener('change', async () => {
+    const file = decoderFileInput.files?.[0];
+    if (!file) return;
+    decoderTextarea.value = await file.text();
+    decoderFileInput.value = '';
+  });
+
+  // === Helpers ===
+  function getTimestampStr() {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('show');
+  }
+  function hideError() {
+    errorMsg.textContent = '';
+    errorMsg.classList.remove('show');
+  }
+
+  function parseJsonInput(text) {
+    const trimmed = text.trim();
+    if (!trimmed) return [];
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed;
+    return [parsed];
+  }
+
+  // === Merge logic ===
+  mergeBtn.addEventListener('click', () => {
+    hideError();
+    outputSection.classList.remove('show');
+    summaryEl.classList.remove('show');
+    downloadBtn.disabled = true;
+    copyBtn.disabled     = true;
+
+    let encoderRecords = [];
+    let decoderRecords = [];
+
+    try {
+      const encText = encoderTextarea.value.trim();
+      if (encText) encoderRecords = parseJsonInput(encText);
+    } catch (e) {
+      showError('Error parsing encoder config JSON:\n' + e.message);
+      return;
+    }
+
+    try {
+      const decText = decoderTextarea.value.trim();
+      if (decText) decoderRecords = parseJsonInput(decText);
+    } catch (e) {
+      showError('Error parsing decoder results JSON:\n' + e.message);
+      return;
+    }
+
+    if (encoderRecords.length === 0 && decoderRecords.length === 0) {
+      showError('No input provided. Paste or load at least one JSON file.');
+      return;
+    }
+
+    // Build lookup maps by runId
+    const encoderMap = new Map();
+    for (const rec of encoderRecords) {
+      if (rec && rec.runId) encoderMap.set(rec.runId, rec);
+    }
+
+    const decoderMap = new Map();
+    for (const rec of decoderRecords) {
+      if (rec && rec.runId) decoderMap.set(rec.runId, rec);
+    }
+
+    // Collect all unique runIds
+    const allRunIds = new Set([...encoderMap.keys(), ...decoderMap.keys()]);
+
+    // Merge
+    const merged = [];
+    for (const runId of allRunIds) {
+      const enc = encoderMap.get(runId) || null;
+      const dec = decoderMap.get(runId) || null;
+
+      let mergeSource;
+      if (enc && dec) mergeSource = 'both';
+      else if (enc)   mergeSource = 'encoder_only';
+      else            mergeSource = 'decoder_only';
+
+      let record;
+      if (dec) {
+        // Decoder result as base
+        record = Object.assign({}, dec);
+        if (enc) {
+          // Nested encoder config
+          record.encoderConfig = enc;
+          // Promote convenience fields to root
+          if (enc.randomSeed != null)  record.randomSeed  = enc.randomSeed;
+          if (enc.payloadHash != null) record.expectedHash = enc.payloadHash;
+          if (enc.payloadHash != null && record.payloadHashSha256 != null) {
+            record.hashVerified = record.payloadHashSha256 === enc.payloadHash;
+          }
+        }
+      } else {
+        // Encoder-only record
+        record = {
+          runId:         enc.runId,
+          timestamp:     enc.timestamp || null,
+          encoderConfig: enc,
+          randomSeed:    enc.randomSeed  || null,
+          expectedHash:  enc.payloadHash || null,
+        };
+      }
+
+      record._mergeSource = mergeSource;
+      merged.push(record);
+    }
+
+    // Sort by timestamp (missing timestamps last)
+    merged.sort((a, b) => {
+      const ta = a.timestamp ? new Date(a.timestamp).getTime() : Infinity;
+      const tb = b.timestamp ? new Date(b.timestamp).getTime() : Infinity;
+      return ta - tb;
+    });
+
+    // Stats
+    const totalRuns     = merged.length;
+    const fullMatched   = merged.filter(r => r._mergeSource === 'both').length;
+    const encoderOnly   = merged.filter(r => r._mergeSource === 'encoder_only').length;
+    const decoderOnly   = merged.filter(r => r._mergeSource === 'decoder_only').length;
+    const succeeded     = merged.filter(r => r.success === true).length;
+    const failed        = merged.filter(r => r.success === false).length;
+
+    // Show summary
+    summaryStats.innerHTML = [
+      `<div class="summary-stat">Total runs: <span>${totalRuns}</span></div>`,
+      `<div class="summary-stat">Fully matched: <span>${fullMatched}</span></div>`,
+      `<div class="summary-stat">Encoder only: <span>${encoderOnly}</span></div>`,
+      `<div class="summary-stat">Decoder only: <span>${decoderOnly}</span></div>`,
+      `<div class="summary-stat">Succeeded: <span style="color:#00ff88">${succeeded}</span></div>`,
+      `<div class="summary-stat">Failed: <span style="color:#ff6b6b">${failed}</span></div>`,
+    ].join('');
+    summaryEl.classList.add('show');
+
+    // Show output
+    const jsonStr = JSON.stringify(merged, null, 2);
+    outputTextarea.value = jsonStr;
+    outputSection.classList.add('show');
+    downloadBtn.disabled = false;
+    copyBtn.disabled     = false;
+  });
+
+  // === Download ===
+  downloadBtn.addEventListener('click', () => {
+    const jsonStr = outputTextarea.value;
+    if (!jsonStr) return;
+    const filename = `qram-merged-${getTimestampStr()}.json`;
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // === Copy ===
+  copyBtn.addEventListener('click', async () => {
+    const jsonStr = outputTextarea.value;
+    if (!jsonStr) return;
+    try {
+      await navigator.clipboard.writeText(jsonStr);
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => copyBtn.textContent = 'Copy Merged JSON', 2500);
+    } catch (_) {
+      outputTextarea.select();
+      document.execCommand('copy');
+    }
+  });
+})();
+</script>
+</body>
+</html>
