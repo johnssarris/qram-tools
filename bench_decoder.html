@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="QRAM Bench Decoder">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>QRAM Bench Decoder</title>
+  <link rel="manifest" href="manifest.json">
+
+  <script src="./libs/qram.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e; color: #eee; min-height: 100vh; padding: 14px;
+    }
+    .container { max-width: 540px; margin: 0 auto; }
+
+    h1 { text-align: center; margin-bottom: 12px; font-size: 1.25rem; color: #00d4ff; }
+    h3 { font-size: 0.8rem; color: #888; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+
+    .section { background: #16213e; border-radius: 10px; padding: 12px; margin-bottom: 10px; }
+
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    .row:last-child { margin-bottom: 0; }
+
+    select, input[type="text"] {
+      border-radius: 8px; border: 1px solid #333;
+      background: #0d1117; color: #eee; padding: 8px 10px;
+      font-size: 0.88rem;
+    }
+    input[type="text"] { flex: 1; min-width: 80px; }
+
+    button {
+      border-radius: 10px; border: none; cursor: pointer;
+      padding: 10px 14px; font-size: 0.88rem; font-weight: 700;
+    }
+    .btn-primary   { background: #00ff88; color: #000; }
+    .btn-secondary { background: #16213e; color: #eee; border: 1px solid #333; }
+    .btn-danger    { background: #ff4b4b; color: #fff; }
+    .btn-copy      { background: #00d4ff; color: #000; width: 100%; margin-top: 8px; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #video-container {
+      position: relative; width: 100%; background: #000;
+      border-radius: 12px; overflow: hidden; margin: 8px 0; aspect-ratio: 1;
+    }
+    #video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    #overlay {
+      position: absolute; inset: 0; display: flex;
+      align-items: center; justify-content: center; pointer-events: none;
+    }
+    #scan-region {
+      width: 85%; height: 85%; border: 2px solid #00d4ff; border-radius: 10px;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    }
+    #scan-indicator {
+      position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,255,136,0.9); color: #000; padding: 4px 12px;
+      border-radius: 20px; font-size: .75rem; font-weight: 700;
+      opacity: 0; transition: opacity .1s;
+    }
+    #scan-indicator.flash { opacity: 1; }
+
+    #error-msg {
+      background: #ff4444; color: #fff; padding: 10px 14px;
+      border-radius: 8px; margin-bottom: 10px; display: none; font-size: 0.88rem;
+    }
+    #error-msg.show { display: block; }
+
+    /* Stats grid */
+    .stats-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px;
+    }
+    .stat-box { background: #0d1117; border-radius: 8px; padding: 8px; text-align: center; }
+    .stat-value { font-size: 1.1rem; font-weight: 800; color: #00d4ff; }
+    .stat-label { font-size: .65rem; color: #666; margin-top: 2px; }
+    .stat-value.green  { color: #00ff88; }
+    .stat-value.yellow { color: #ffd700; }
+    .stat-value.red    { color: #ff6b6b; }
+
+    #run-id-box { font-family: ui-monospace, monospace; font-size: .8rem; color: #00d4ff; }
+
+    /* Progress bar */
+    #progress-bar { width: 100%; height: 8px; background: #0d1117; border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+    #progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#00d4ff,#00ff88); transition: width .2s; }
+
+    /* Block timeline */
+    #block-timeline {
+      font-family: ui-monospace, monospace; font-size: .75rem; color: #0f0;
+      max-height: 100px; overflow-y: auto; background: #0d1117;
+      border-radius: 6px; padding: 6px 8px; line-height: 1.5;
+    }
+    #block-timeline:empty::before { content: 'No blocks decoded yet'; color: #555; }
+
+    /* Hash result badge */
+    .hash-result {
+      padding: 6px 12px; border-radius: 6px; font-size: .82rem;
+      font-weight: 700; text-align: center; margin-bottom: 8px;
+    }
+    .hash-ok      { background: #0a2a0a; color: #00ff88; border: 1px solid #00ff88; }
+    .hash-fail    { background: #2a0a0a; color: #ff6b6b; border: 1px solid #ff6b6b; }
+    .hash-unknown { background: #16213e; color: #888;    border: 1px solid #333;    }
+
+    /* Result JSON */
+    #result-json {
+      width: 100%; height: 220px; background: #0d1117; border: 1px solid #333;
+      border-radius: 8px; color: #0f0;
+      font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      font-size: 10px; padding: 8px; resize: vertical;
+    }
+
+    #result-section { display: none; }
+    #result-section.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>QRAM Bench Decoder</h1>
+
+    <div id="error-msg"></div>
+
+    <!-- Controls -->
+    <div class="section">
+      <div class="row">
+        <button id="camera-btn"    class="btn-primary">Camera</button>
+        <button id="video-file-btn" class="btn-secondary">Video File</button>
+        <button id="reset-btn"     class="btn-danger">Reset</button>
+        <input id="video-file-input" type="file" accept="video/*" style="display:none">
+      </div>
+      <div class="row">
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Format</label>
+        <select id="format-select">
+          <option value="AUTO" selected>Auto</option>
+          <option value="AZTEC">Aztec</option>
+          <option value="DATA_MATRIX">Data Matrix</option>
+          <option value="QR_CODE">QR Code</option>
+          <option value="PDF_417">PDF417</option>
+        </select>
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Scan</label>
+        <select id="scan-interval">
+          <option value="250">250ms</option>
+          <option value="120">120ms</option>
+          <option value="80" selected>80ms</option>
+          <option value="50">50ms</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Expected hash + env -->
+    <div class="section">
+      <h3>Run Config</h3>
+      <div class="row">
+        <label style="color:#bbb;font-size:.82rem;white-space:nowrap;">Expected hash</label>
+        <input type="text" id="expected-hash" placeholder="Paste payloadHash from encoder config JSON">
+      </div>
+      <div class="row">
+        <label style="color:#bbb;font-size:.82rem;white-space:nowrap;">Distance</label>
+        <input type="text" id="env-distance" placeholder="e.g. 60cm" style="max-width:90px">
+        <label style="color:#bbb;font-size:.82rem;white-space:nowrap;">Brightness</label>
+        <input type="text" id="env-brightness" placeholder="e.g. 80%" style="max-width:80px">
+      </div>
+      <div class="row">
+        <label style="color:#bbb;font-size:.82rem;white-space:nowrap;">Notes</label>
+        <input type="text" id="env-notes" placeholder="lighting, conditions, device state…">
+      </div>
+    </div>
+
+    <!-- Video -->
+    <div id="video-container">
+      <video id="video" autoplay playsinline muted></video>
+      <div id="overlay"><div id="scan-region"></div></div>
+      <div id="scan-indicator">Packet</div>
+    </div>
+
+    <!-- Progress bar -->
+    <div id="progress-bar"><div id="progress-fill"></div></div>
+
+    <!-- Live stats -->
+    <div class="section">
+      <div id="run-id-box" style="margin-bottom:8px;">Run: —</div>
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-value" id="st-scan-attempts">0</div>
+          <div class="stat-label">Scan attempts</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value green" id="st-scan-successes">0</div>
+          <div class="stat-label">Scan successes</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-success-rate">—</div>
+          <div class="stat-label">Success rate</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value yellow" id="st-dedup-drops">0</div>
+          <div class="stat-label">Dedup drops</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value green" id="st-unique-pkts">0</div>
+          <div class="stat-label">Unique packets</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-pkts-per-sec">—</div>
+          <div class="stat-label">Pkts/sec</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value green" id="st-blocks">0</div>
+          <div class="stat-label">Blocks decoded</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-blocks-total">?</div>
+          <div class="stat-label">Total blocks</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-elapsed">0s</div>
+          <div class="stat-label">Elapsed</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Block timeline -->
+    <div class="section">
+      <h3>Block Decode Timeline</h3>
+      <div id="block-timeline"></div>
+    </div>
+
+    <!-- Result (shown on complete or manual export) -->
+    <div id="result-section">
+      <div class="section">
+        <h3>Result</h3>
+        <div id="hash-result" class="hash-result hash-unknown">—</div>
+        <textarea id="result-json" readonly></textarea>
+        <button id="copy-result" class="btn-copy">Copy Result JSON</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // === Elements ===
+  const video          = document.getElementById('video');
+  const errorMsg       = document.getElementById('error-msg');
+  const scanIndicator  = document.getElementById('scan-indicator');
+  const progressFill   = document.getElementById('progress-fill');
+  const runIdBox       = document.getElementById('run-id-box');
+
+  const stScanAttempts  = document.getElementById('st-scan-attempts');
+  const stScanSuccesses = document.getElementById('st-scan-successes');
+  const stSuccessRate   = document.getElementById('st-success-rate');
+  const stDedupDrops    = document.getElementById('st-dedup-drops');
+  const stUniquePkts    = document.getElementById('st-unique-pkts');
+  const stPktsPerSec    = document.getElementById('st-pkts-per-sec');
+  const stBlocks        = document.getElementById('st-blocks');
+  const stBlocksTotal   = document.getElementById('st-blocks-total');
+  const stElapsed       = document.getElementById('st-elapsed');
+
+  const blockTimelineEl  = document.getElementById('block-timeline');
+  const resultSection    = document.getElementById('result-section');
+  const hashResultEl     = document.getElementById('hash-result');
+  const resultJsonEl     = document.getElementById('result-json');
+  const copyResultBtn    = document.getElementById('copy-result');
+
+  const cameraBtn       = document.getElementById('camera-btn');
+  const videoFileBtn    = document.getElementById('video-file-btn');
+  const videoFileInput  = document.getElementById('video-file-input');
+  const resetBtn        = document.getElementById('reset-btn');
+  const formatSelect    = document.getElementById('format-select');
+  const scanIntervalSel = document.getElementById('scan-interval');
+
+  const expectedHashEl  = document.getElementById('expected-hash');
+  const envDistanceEl   = document.getElementById('env-distance');
+  const envBrightnessEl = document.getElementById('env-brightness');
+  const envNotesEl      = document.getElementById('env-notes');
+
+  // === State ===
+  let scanning       = false;
+  let decoder        = null;
+  let detectedRunId  = null;
+  let seenSeqNums    = new Set();
+  let runStartTime   = null;
+
+  // Counters
+  let scanAttempts   = 0;
+  let scanSuccesses  = 0;
+  let dedupDrops     = 0;
+  let uniquePackets  = 0;
+
+  // Timing
+  let firstPacketTime = null;
+  let firstBlockTime  = null;
+
+  // Block state
+  let lastReceivedBlocks = 0;
+  let lastTotalBlocks    = 0;
+
+  // Timelines
+  let blockTimeline  = [];
+  let packetTimeline = [];
+
+  // ZXing
+  let zxingControls = null;
+  let zxingReader   = null;
+  let cameraStream  = null;
+
+  // UI update interval
+  let uiTimer = null;
+
+  // === Helpers ===
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('show');
+  }
+  function hideError() { errorMsg.classList.remove('show'); }
+
+  function flashIndicator() {
+    scanIndicator.classList.add('flash');
+    setTimeout(() => scanIndicator.classList.remove('flash'), 120);
+  }
+
+  function fmtMs(ms) {
+    if (ms === null || ms === undefined) return '—';
+    if (ms < 1000) return ms.toFixed(0) + 'ms';
+    return (ms / 1000).toFixed(2) + 's';
+  }
+
+  function base64UrlToBytes(s) {
+    const t = (s || '').trim().replace(/-/g, '+').replace(/_/g, '/');
+    const padded = t + '==='.slice((t.length + 3) % 4);
+    const bin = atob(padded);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+    return out;
+  }
+
+  async function sha256hex(data) {
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // Parse a bench-encoded barcode text.
+  // Format: base64url( [runId: 4 bytes] [seqNum: 2 bytes BE] [qramData: N bytes] )
+  function parsePacket(text) {
+    try {
+      const raw = base64UrlToBytes(text);
+      if (raw.length < 7) return null; // need ≥ 6 header + 1 qram byte
+      const runIdHex = Array.from(raw.slice(0, 4), b => b.toString(16).padStart(2, '0')).join('');
+      const seqNum   = (raw[4] << 8) | raw[5];
+      const qramData = raw.slice(6);
+      return { runIdHex, seqNum, qramData };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // === UI Updates ===
+  function updateUI() {
+    stScanAttempts.textContent  = scanAttempts;
+    stScanSuccesses.textContent = scanSuccesses;
+    stSuccessRate.textContent   = scanAttempts > 0
+      ? (scanSuccesses / scanAttempts * 100).toFixed(0) + '%' : '—';
+    stDedupDrops.textContent    = dedupDrops;
+    stUniquePkts.textContent    = uniquePackets;
+    stBlocks.textContent        = lastReceivedBlocks;
+    stBlocksTotal.textContent   = lastTotalBlocks > 0 ? lastTotalBlocks : '?';
+
+    const elapsed = runStartTime ? (Date.now() - runStartTime) / 1000 : 0;
+    stElapsed.textContent = elapsed > 0 ? elapsed.toFixed(1) + 's' : '0s';
+
+    stPktsPerSec.textContent = (elapsed > 0.5 && uniquePackets > 0)
+      ? (uniquePackets / elapsed).toFixed(1) + '/s' : '—';
+
+    const pct = lastTotalBlocks > 0
+      ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100) : 0;
+    progressFill.style.width = pct + '%';
+
+    if (detectedRunId) runIdBox.textContent = 'Run: ' + detectedRunId;
+  }
+
+  function startUITimer() {
+    if (uiTimer) return;
+    uiTimer = setInterval(updateUI, 500);
+  }
+  function stopUITimer() {
+    if (uiTimer) { clearInterval(uiTimer); uiTimer = null; }
+  }
+
+  // === ZXing ===
+  function stopZXing() {
+    try { if (zxingControls?.stop) zxingControls.stop(); } catch (_) {}
+    zxingControls = null;
+    try { if (zxingReader?.reset) zxingReader.reset(); } catch (_) {}
+    zxingReader = null;
+  }
+
+  function stopCamera() {
+    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+  }
+
+  function stopAllInputs() {
+    stopZXing();
+    stopCamera();
+    try {
+      if (video.src && video.src.startsWith('blob:')) URL.revokeObjectURL(video.src);
+    } catch (_) {}
+    video.srcObject = null;
+    video.src = '';
+  }
+
+  function buildZXingReader() {
+    if (!window.ZXingBrowser) throw new Error('ZXingBrowser not loaded');
+    const hints = new Map();
+    if (ZXingBrowser.DecodeHintType && ZXingBrowser.BarcodeFormat) {
+      const fmt = formatSelect.value;
+      const map = {
+        AZTEC:       ZXingBrowser.BarcodeFormat.AZTEC,
+        DATA_MATRIX: ZXingBrowser.BarcodeFormat.DATA_MATRIX,
+        QR_CODE:     ZXingBrowser.BarcodeFormat.QR_CODE,
+        PDF_417:     ZXingBrowser.BarcodeFormat.PDF_417,
+      };
+      if (fmt !== 'AUTO') hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [map[fmt]]);
+      hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+    }
+    const interval = parseInt(scanIntervalSel.value, 10) || 80;
+    zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, interval);
+  }
+
+  // === ZXing callback — fires on every scan attempt (success or fail) ===
+  async function onZXingCallback(result, err) {
+    if (!scanning) return;
+
+    scanAttempts++;
+
+    if (!result) return; // scan miss (NotFoundException etc.)
+
+    scanSuccesses++;
+
+    const rawText = result.getText();
+    if (!rawText) return;
+
+    const parsed = parsePacket(rawText);
+    if (!parsed) return; // not a bench-format packet — ignore
+
+    const { runIdHex, seqNum, qramData } = parsed;
+
+    // Latch onto the first run ID we see
+    if (detectedRunId === null) {
+      detectedRunId = runIdHex;
+      runStartTime  = Date.now();
+      startUITimer();
+    } else if (detectedRunId !== runIdHex) {
+      return; // different run — ignore
+    }
+
+    // Dedup by sequence number
+    if (seenSeqNums.has(seqNum)) {
+      dedupDrops++;
+      return;
+    }
+    seenSeqNums.add(seqNum);
+
+    const now     = Date.now();
+    const elapsed = now - runStartTime;
+
+    if (!firstPacketTime) firstPacketTime = now;
+
+    uniquePackets++;
+    if (packetTimeline.length < 1000) {
+      packetTimeline.push({ seq: seqNum, elapsedMs: elapsed });
+    }
+
+    flashIndicator();
+
+    try {
+      const progress = await decoder.enqueue(qramData);
+
+      if (progress) {
+        const newBlocks = progress.receivedBlocks;
+
+        if (newBlocks > lastReceivedBlocks) {
+          // Record a timeline entry for each newly decoded block
+          const tNow     = Date.now();
+          const tElapsed = tNow - runStartTime;
+
+          for (let b = lastReceivedBlocks; b < newBlocks; b++) {
+            blockTimeline.push({
+              blockIdx:        b,
+              elapsedMs:       tElapsed,
+              uniquePacketCount: uniquePackets,
+            });
+            const entry = document.createElement('div');
+            entry.textContent =
+              `Block ${b} at ${fmtMs(tElapsed)} | ${uniquePackets} unique pkts`;
+            blockTimelineEl.appendChild(entry);
+            blockTimelineEl.scrollTop = blockTimelineEl.scrollHeight;
+          }
+
+          if (lastReceivedBlocks === 0 && newBlocks > 0) firstBlockTime = Date.now();
+        }
+
+        lastReceivedBlocks = progress.receivedBlocks;
+        lastTotalBlocks    = progress.totalBlocks;
+      }
+    } catch (_) {
+      // qram rejected the packet — still counted as uniquePacket
+    }
+  }
+
+  // === Completion ===
+  async function onComplete(result) {
+    scanning = false;
+    stopUITimer();
+    stopAllInputs();
+    updateUI();
+
+    const decodeCompleteTime = Date.now();
+    const data = result.data;
+
+    const payloadHashSha256 = await sha256hex(data);
+    const expectedHash      = expectedHashEl.value.trim().toLowerCase();
+    const hashVerified       = expectedHash
+      ? payloadHashSha256 === expectedHash
+      : null;
+
+    const totalDecodeTimeMs     = runStartTime ? decodeCompleteTime - runStartTime : null;
+    const timeToFirstPacketMs   = (firstPacketTime && runStartTime)
+      ? firstPacketTime - runStartTime : null;
+    const timeToFirstBlockMs    = (firstBlockTime && runStartTime)
+      ? firstBlockTime - runStartTime : null;
+    const packetsPerSec         = (totalDecodeTimeMs > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / (totalDecodeTimeMs / 1000) * 10) / 10 : null;
+    const scanSuccessRate       = scanAttempts > 0
+      ? Math.round(scanSuccesses / scanAttempts * 1000) / 1000 : null;
+    const overheadRatio         = (lastTotalBlocks > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / lastTotalBlocks * 100) / 100 : null;
+
+    const resultObj = buildResultJson({
+      success: true,
+      failureReason: null,
+      decodeCompleteTime,
+      totalDecodeTimeMs,
+      timeToFirstPacketMs,
+      timeToFirstBlockMs,
+      payloadSize: data.length,
+      payloadHashSha256,
+      expectedHash: expectedHash || null,
+      hashVerified,
+      packetsPerSec,
+      scanSuccessRate,
+      overheadRatio,
+    });
+
+    showResult(resultObj, hashVerified);
+  }
+
+  // === Partial / failed run export ===
+  async function exportPartialResult(reason) {
+    const now = Date.now();
+    const totalMs = runStartTime ? now - runStartTime : null;
+    const packetsPerSec = (totalMs > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / (totalMs / 1000) * 10) / 10 : null;
+    const scanSuccessRate = scanAttempts > 0
+      ? Math.round(scanSuccesses / scanAttempts * 1000) / 1000 : null;
+    const overheadRatio = (lastTotalBlocks > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / lastTotalBlocks * 100) / 100 : null;
+
+    const resultObj = buildResultJson({
+      success: false,
+      failureReason: reason,
+      decodeCompleteTime: null,
+      totalDecodeTimeMs: totalMs,
+      timeToFirstPacketMs: (firstPacketTime && runStartTime) ? firstPacketTime - runStartTime : null,
+      timeToFirstBlockMs:  (firstBlockTime  && runStartTime) ? firstBlockTime  - runStartTime : null,
+      payloadSize: null,
+      payloadHashSha256: null,
+      expectedHash: expectedHashEl.value.trim() || null,
+      hashVerified: null,
+      packetsPerSec,
+      scanSuccessRate,
+      overheadRatio,
+    });
+
+    showResult(resultObj, null);
+  }
+
+  function buildResultJson(extras) {
+    return {
+      runId:              detectedRunId,
+      timestamp:          new Date().toISOString(),
+      decoderLib:         'ZXing @0.1.5',
+      barcodeFormat:      formatSelect.value,
+      scanIntervalMs:     parseInt(scanIntervalSel.value, 10),
+      success:            extras.success,
+      failureReason:      extras.failureReason,
+
+      timeToFirstPacketMs:   extras.timeToFirstPacketMs,
+      timeToFirstBlockMs:    extras.timeToFirstBlockMs,
+      totalDecodeTimeMs:     extras.totalDecodeTimeMs,
+
+      scanAttempts,
+      scanSuccesses,
+      scanSuccessRate:    extras.scanSuccessRate,
+      dedupDrops,
+      uniquePackets,
+
+      blocksDecoded:      lastReceivedBlocks,
+      blocksTotal:        lastTotalBlocks,
+      overheadRatio:      extras.overheadRatio,
+      packetsPerSec:      extras.packetsPerSec,
+
+      payloadSize:        extras.payloadSize,
+      payloadHashSha256:  extras.payloadHashSha256,
+      expectedHash:       extras.expectedHash,
+      hashVerified:       extras.hashVerified,
+
+      blockTimeline,
+      // Cap packet timeline to keep JSON size manageable
+      packetTimeline: packetTimeline.slice(0, 500),
+
+      env: {
+        distance:   envDistanceEl.value.trim()   || null,
+        brightness: envBrightnessEl.value.trim() || null,
+        notes:      envNotesEl.value.trim()      || null,
+      },
+    };
+  }
+
+  function showResult(obj, hashVerified) {
+    const jsonStr = JSON.stringify(obj, null, 2);
+    resultJsonEl.value = jsonStr;
+    resultSection.classList.add('show');
+
+    if (hashVerified === true) {
+      hashResultEl.textContent  = '✓ Hash verified — payload intact';
+      hashResultEl.className    = 'hash-result hash-ok';
+    } else if (hashVerified === false) {
+      hashResultEl.textContent  = '✗ Hash MISMATCH — payload corrupted!';
+      hashResultEl.className    = 'hash-result hash-fail';
+    } else if (obj.success) {
+      hashResultEl.textContent  = 'Hash not verified (paste expectedHash above to verify)';
+      hashResultEl.className    = 'hash-result hash-unknown';
+    } else {
+      hashResultEl.textContent  = 'Run incomplete — ' + (obj.failureReason || 'unknown reason');
+      hashResultEl.className    = 'hash-result hash-unknown';
+    }
+
+    // Auto-copy to clipboard
+    navigator.clipboard.writeText(jsonStr).then(() => {
+      copyResultBtn.textContent = 'Auto-copied!';
+      setTimeout(() => copyResultBtn.textContent = 'Copy Result JSON', 3000);
+    }).catch(() => {});
+  }
+
+  function resetState() {
+    scanning       = false;
+    decoder        = null;
+    detectedRunId  = null;
+    seenSeqNums    = new Set();
+    runStartTime   = null;
+    firstPacketTime = null;
+    firstBlockTime  = null;
+    scanAttempts   = 0;
+    scanSuccesses  = 0;
+    dedupDrops     = 0;
+    uniquePackets  = 0;
+    lastReceivedBlocks = 0;
+    lastTotalBlocks    = 0;
+    blockTimeline  = [];
+    packetTimeline = [];
+  }
+
+  function resetUI() {
+    runIdBox.textContent       = 'Run: —';
+    stScanAttempts.textContent = '0';
+    stScanSuccesses.textContent = '0';
+    stSuccessRate.textContent  = '—';
+    stDedupDrops.textContent   = '0';
+    stUniquePkts.textContent   = '0';
+    stPktsPerSec.textContent   = '—';
+    stBlocks.textContent       = '0';
+    stBlocksTotal.textContent  = '?';
+    stElapsed.textContent      = '0s';
+    progressFill.style.width   = '0%';
+    blockTimelineEl.innerHTML  = '';
+    resultSection.classList.remove('show');
+    resultJsonEl.value         = '';
+    hideError();
+  }
+
+  function initDecoder() {
+    decoder = new qram.Decoder();
+    decoder.decode()
+      .then(onComplete)
+      .catch(err => {
+        if (err.name !== 'AbortError') showError('Decode error: ' + err.message);
+      });
+  }
+
+  // === Camera mode ===
+  async function startCameraMode() {
+    try {
+      stopUITimer();
+      stopZXing();
+      stopCamera();
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      resetState();
+      resetUI();
+
+      scanning = true;
+      initDecoder();
+      buildZXingReader();
+
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      video.srcObject = cameraStream;
+      video.playsInline = true;
+      video.muted = true;
+
+      await new Promise((resolve, reject) => {
+        if (video.readyState >= 1) resolve();
+        else {
+          video.addEventListener('loadedmetadata', resolve, { once: true });
+          video.addEventListener('error', reject, { once: true });
+        }
+      });
+      await video.play();
+
+      zxingControls = await zxingReader.decodeFromVideoDevice(
+        null, video,
+        (result, err) => onZXingCallback(result, err)
+      );
+    } catch (err) {
+      scanning = false;
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      showError('Camera init failed: ' + (err?.message || err));
+    }
+  }
+
+  // === Video file mode ===
+  async function startVideoFileMode(file) {
+    try {
+      stopUITimer();
+      stopZXing();
+      stopCamera();
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      resetState();
+      resetUI();
+
+      scanning = true;
+      initDecoder();
+      buildZXingReader();
+
+      const url = URL.createObjectURL(file);
+      video.srcObject = null;
+      video.src = url;
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = reject;
+      });
+      await video.play();
+
+      const vc = document.getElementById('video-container');
+      if (video.videoWidth && video.videoHeight) {
+        vc.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+      }
+
+      zxingControls = await zxingReader.decodeFromVideoElement(
+        video,
+        (result, err) => onZXingCallback(result, err)
+      );
+    } catch (err) {
+      scanning = false;
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      showError('Video scan init failed: ' + (err?.message || err));
+    }
+  }
+
+  // === Buttons ===
+  cameraBtn.addEventListener('click', () => startCameraMode());
+
+  videoFileBtn.addEventListener('click', () => videoFileInput.click());
+  videoFileInput.addEventListener('change', async () => {
+    const file = videoFileInput.files?.[0];
+    if (!file) return;
+    await startVideoFileMode(file);
+    videoFileInput.value = '';
+  });
+
+  resetBtn.addEventListener('click', async () => {
+    const wasRunning = scanning && detectedRunId !== null && uniquePackets > 0;
+
+    stopUITimer();
+    stopZXing();
+    stopCamera();
+    if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+
+    if (wasRunning) {
+      // Export partial result before clearing state
+      scanning = false;
+      await exportPartialResult('user_reset');
+    } else {
+      scanning = false;
+    }
+
+    resetState();
+    resetUI();
+  });
+
+  copyResultBtn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(resultJsonEl.value);
+      copyResultBtn.textContent = 'Copied!';
+      setTimeout(() => copyResultBtn.textContent = 'Copy Result JSON', 2500);
+    } catch (_) {
+      resultJsonEl.select();
+      document.execCommand('copy');
+    }
+  });
+
+  formatSelect.addEventListener('change', () => {
+    // Format change mid-scan resets — must rebuild ZXing reader
+    if (scanning) {
+      stopUITimer();
+      stopZXing();
+      stopCamera();
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      resetState();
+      resetUI();
+    }
+  });
+
+  // SW registration for PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+
+  resetUI();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QRAM Bench Encoder</title>
+  <script src="./libs/qram.min.js"></script>
+  <script src="./libs/bwip-js-min.js"></script>
+  <script src="./libs/qrcode.min.js"></script>
+  <style>
+    body { font-family: system-ui; background: #1a1a2e; color: #eee; padding: 16px; max-width: 860px; margin: auto; }
+    h2 { margin: 0 0 14px 0; color: #00d4ff; font-size: 1.2rem; }
+    h3 { margin: 14px 0 8px 0; color: #aaa; font-size: 0.9rem; text-transform: uppercase; letter-spacing: .05em; }
+
+    .section { background: #16213e; border-radius: 10px; padding: 14px; margin-bottom: 12px; }
+
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 10px; }
+    .row:last-child { margin-bottom: 0; }
+
+    label { color: #c8c8c8; display: flex; gap: 6px; align-items: center; font-size: 14px; }
+    input[type="number"], input[type="text"], select, textarea {
+      padding: 6px 8px; background: #0d1117; border: 1px solid #333; color: #eee;
+      border-radius: 6px; font-size: 13px;
+    }
+    input[type="number"] { width: 80px; }
+    input[type="text"] { width: 180px; }
+    select { padding: 6px 8px; }
+    textarea {
+      width: 100%; height: 200px; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px; color: #0f0; resize: vertical; box-sizing: border-box;
+    }
+    input[type="text"].wide { width: 260px; }
+
+    button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    #btn-generate { background: #00d4ff; color: #000; }
+    #btn-start    { background: #00ff4c; color: #000; }
+    #btn-stop     { background: #ff4b4b; color: #fff; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #copy-config { background: #16213e; border: 1px solid #444; color: #eee; font-size: 13px; padding: 7px 14px; }
+    #copy-config:hover:not(:disabled) { background: #1e2d4a; }
+
+    .mat-wrap { display: flex; justify-content: center; margin: 12px 0; }
+    #mat {
+      display: inline-flex; background: #fff; padding: 24px;
+      border-radius: 8px; box-shadow: 0 0 0 1px rgba(0,0,0,.25);
+    }
+    #mat.no-mat   { background: transparent; padding: 0; box-shadow: none; border-radius: 0; }
+    #mat.all-white { background: #fff; padding: 24px; box-shadow: none; border-radius: 0; }
+
+    #stats { text-align: center; font-size: 13px; color: #b0b0b0; min-height: 18px; margin: 6px 0; font-family: ui-monospace, monospace; }
+    #err {
+      white-space: pre-wrap; background: #2a1a1a; border: 1px solid #5a2a2a;
+      color: #ffd0d0; padding: 10px; border-radius: 8px; display: none;
+      margin-top: 10px; font-family: ui-monospace, monospace; font-size: 12px;
+    }
+    .hint { color: #666; font-size: 12px; margin-top: 6px; }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+      font-weight: 700; background: #0d1117; color: #888; border: 1px solid #333;
+    }
+    .badge.ready { background: #0a2a0a; color: #00ff88; border-color: #00ff88; }
+
+    #run-id-display { font-family: ui-monospace, monospace; font-size: 13px; color: #00d4ff; }
+  </style>
+</head>
+<body>
+  <h2>QRAM Bench Encoder</h2>
+
+  <!-- Config -->
+  <div class="section">
+    <h3>Run Config</h3>
+
+    <div class="row">
+      <label>Label: <input type="text" id="label" placeholder="e.g. aztec-baseline-1" class="wide"></label>
+      <label>Payload: <input type="number" id="payload-size" value="500" min="10" max="100000"> bytes</label>
+    </div>
+
+    <div class="row">
+      <label>Barcode:
+        <select id="bcid">
+          <option value="azteccode" selected>Aztec</option>
+          <option value="datamatrix">Data Matrix</option>
+          <option value="qrcode">QR Code</option>
+          <option value="pdf417">PDF417</option>
+        </select>
+      </label>
+      <label>Encoder lib:
+        <select id="enc-lib">
+          <option value="bwip-js" selected>bwip-js</option>
+          <option value="qrcode.min.js">qrcode.min.js (QR only)</option>
+        </select>
+      </label>
+      <label>Block: <input type="number" id="blk" value="120" min="50" max="2000"></label>
+      <label>FPS: <input type="number" id="fps" value="12" min="1" max="60"></label>
+    </div>
+
+    <!-- Aztec options -->
+    <div class="row" id="aztec-opts">
+      <label>Aztec EC%: <input type="number" id="eclevel" value="33" min="0" max="99"></label>
+      <label>Scale: <input type="number" id="scale" value="2" min="1" max="20"></label>
+      <label>Format:
+        <select id="format">
+          <option value="" selected>Auto</option>
+          <option value="full">Full</option>
+          <option value="compact">Compact</option>
+        </select>
+      </label>
+      <label>Layers: <input type="number" id="layers" value="0" min="0" max="32" title="0=auto"></label>
+    </div>
+
+    <!-- QR options -->
+    <div class="row" id="qr-opts" style="display:none">
+      <label>QR EC:
+        <select id="qrec">
+          <option value="L">L</option>
+          <option value="M" selected>M</option>
+          <option value="Q">Q</option>
+          <option value="H">H</option>
+        </select>
+      </label>
+      <label>Scale: <input type="number" id="qrscale" value="2" min="1" max="20"></label>
+    </div>
+
+    <!-- Data Matrix options -->
+    <div class="row" id="dm-opts" style="display:none">
+      <label>Scale: <input type="number" id="dmscale" value="2" min="1" max="20"></label>
+    </div>
+
+    <!-- PDF417 options -->
+    <div class="row" id="pdf-opts" style="display:none">
+      <label>Scale: <input type="number" id="pdfscale" value="2" min="1" max="10"></label>
+      <label>Cols: <input type="number" id="pdfcols" value="0" min="0" max="30" title="0=auto"></label>
+      <label>Rows: <input type="number" id="pdfrows" value="0" min="0" max="90" title="0=auto"></label>
+    </div>
+
+    <!-- Mat -->
+    <div class="row">
+      <label>Mat:
+        <select id="matmode">
+          <option value="white-mat" selected>White Mat</option>
+          <option value="none">No Mat</option>
+          <option value="all-white">All White</option>
+        </select>
+      </label>
+      <label>Pad: <input type="number" id="matpad" value="24" min="0" max="80"></label>
+    </div>
+
+    <!-- Environment -->
+    <div class="row">
+      <label>Distance: <input type="text" id="env-distance" placeholder="e.g. 60cm" style="width:100px"></label>
+      <label>Brightness: <input type="text" id="env-brightness" placeholder="e.g. 80%" style="width:80px"></label>
+      <label>Notes: <input type="text" id="env-notes" placeholder="lighting, conditions…" class="wide"></label>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="row">
+    <button id="btn-generate">Generate Payload</button>
+    <button id="btn-start" disabled>&#9654; Start</button>
+    <button id="btn-stop" disabled>&#9632; Stop</button>
+    <span id="run-id-display"></span>
+    <span id="ready-badge" class="badge">No payload</span>
+  </div>
+
+  <!-- Barcode -->
+  <div class="mat-wrap">
+    <div id="mat">
+      <canvas id="barcode" width="350" height="350"></canvas>
+    </div>
+  </div>
+
+  <div id="stats"></div>
+  <div id="err"></div>
+
+  <!-- Config JSON -->
+  <div class="section" id="config-section" style="display:none">
+    <h3>Run Config JSON &mdash; copy this before scanning</h3>
+    <textarea id="config-json" readonly></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="copy-config">Copy Config JSON</button>
+      <span class="hint">Paste into the decoder or save for later analysis.</span>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // === Elements ===
+  const elLabel       = document.getElementById('label');
+  const elPayloadSize = document.getElementById('payload-size');
+  const elBcid        = document.getElementById('bcid');
+  const elEncLib      = document.getElementById('enc-lib');
+  const elBlk         = document.getElementById('blk');
+  const elFPS         = document.getElementById('fps');
+
+  const elEcLevel  = document.getElementById('eclevel');
+  const elScale    = document.getElementById('scale');
+  const elFormat   = document.getElementById('format');
+  const elLayers   = document.getElementById('layers');
+  const elQrEc     = document.getElementById('qrec');
+  const elQrScale  = document.getElementById('qrscale');
+  const elDmScale  = document.getElementById('dmscale');
+  const elPdfScale = document.getElementById('pdfscale');
+  const elPdfCols  = document.getElementById('pdfcols');
+  const elPdfRows  = document.getElementById('pdfrows');
+
+  const elMatMode = document.getElementById('matmode');
+  const elMatPad  = document.getElementById('matpad');
+  const elMat     = document.getElementById('mat');
+
+  const elDistance   = document.getElementById('env-distance');
+  const elBrightness = document.getElementById('env-brightness');
+  const elNotes      = document.getElementById('env-notes');
+
+  const elGenerate    = document.getElementById('btn-generate');
+  const elStart       = document.getElementById('btn-start');
+  const elStop        = document.getElementById('btn-stop');
+  const elCanvas      = document.getElementById('barcode');
+  const elStats       = document.getElementById('stats');
+  const elErr         = document.getElementById('err');
+  const elConfigJson  = document.getElementById('config-json');
+  const elConfigSec   = document.getElementById('config-section');
+  const elCopyConfig  = document.getElementById('copy-config');
+  const elRunIdDisplay = document.getElementById('run-id-display');
+  const elReadyBadge   = document.getElementById('ready-badge');
+
+  const elAztecOpts = document.getElementById('aztec-opts');
+  const elQrOpts    = document.getElementById('qr-opts');
+  const elDmOpts    = document.getElementById('dm-opts');
+  const elPdfOpts   = document.getElementById('pdf-opts');
+
+  // === Run state ===
+  let running          = false;
+  let cancelRequested  = false;
+  let reader           = null;
+  let stream           = null;
+  let currentPayload   = null;
+  let currentRunIdHex  = null;
+  let currentRunIdBytes = null;
+  let currentConfig    = null;
+  let seqNum           = 0;
+
+  // === Helpers ===
+  function generateRunId() {
+    const bytes = new Uint8Array(4);
+    crypto.getRandomValues(bytes);
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return { hex, bytes };
+  }
+
+  async function sha256hex(data) {
+    const buf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  function bytesToBase64Url(u8) {
+    let bin = '';
+    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  // 6-byte bench header: [runId: 4 bytes] [seqNum: 2 bytes big-endian]
+  function buildBenchPacket(runIdBytes, seq, qramData) {
+    const out = new Uint8Array(4 + 2 + qramData.length);
+    out.set(runIdBytes, 0);
+    out[4] = (seq >> 8) & 0xff;
+    out[5] = seq & 0xff;
+    out.set(qramData, 6);
+    return out;
+  }
+
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function showError(msg, errObj) {
+    const extra = errObj ? '\n\n' + (errObj.stack || String(errObj)) : '';
+    elErr.textContent = String(msg) + extra;
+    elErr.style.display = 'block';
+    console.error(msg, errObj);
+  }
+  function clearError() { elErr.textContent = ''; elErr.style.display = 'none'; }
+
+  function setButtons(isRunning, hasPayload) {
+    elGenerate.disabled = isRunning;
+    elStart.disabled    = isRunning || !hasPayload;
+    elStop.disabled     = !isRunning;
+  }
+
+  // === Barcode type UI ===
+  function updateBarcodeUI() {
+    const bcid = elBcid.value;
+    elAztecOpts.style.display = bcid === 'azteccode' ? '' : 'none';
+    elQrOpts.style.display    = bcid === 'qrcode'    ? '' : 'none';
+    elDmOpts.style.display    = bcid === 'datamatrix' ? '' : 'none';
+    elPdfOpts.style.display   = bcid === 'pdf417'    ? '' : 'none';
+
+    // qrcode.min.js only available for QR
+    const qrOption = elEncLib.querySelector('option[value="qrcode.min.js"]');
+    qrOption.disabled = bcid !== 'qrcode';
+    if (bcid !== 'qrcode' && elEncLib.value === 'qrcode.min.js') {
+      elEncLib.value = 'bwip-js';
+    }
+  }
+  elBcid.addEventListener('change', updateBarcodeUI);
+
+  // === Mat ===
+  function applyMatSettings() {
+    const mode = elMatMode.value;
+    const pad  = Math.max(0, Math.min(80, parseInt(elMatPad.value, 10) || 0));
+    elMat.style.padding = pad + 'px';
+    elMat.classList.remove('no-mat', 'all-white');
+    if (mode === 'none') {
+      elMat.classList.add('no-mat');
+      elMat.style.padding = '0';
+    } else if (mode === 'all-white') {
+      elMat.classList.add('all-white');
+    }
+    document.body.style.background = mode === 'all-white' ? '#fff' : '#1a1a2e';
+    document.body.style.color      = mode === 'all-white' ? '#111' : '#eee';
+  }
+  elMatMode.addEventListener('change', applyMatSettings);
+  elMatPad.addEventListener('input', applyMatSettings);
+
+  // === Canvas ===
+  function clearCanvas() {
+    const ctx = elCanvas.getContext('2d');
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, elCanvas.width, elCanvas.height);
+    ctx.restore();
+  }
+
+  // === Render barcode ===
+  async function renderPacketAsBarcode(text) {
+    const bcid   = elBcid.value;
+    const encLib = elEncLib.value;
+
+    if (bcid === 'qrcode' && encLib === 'qrcode.min.js') {
+      if (typeof QRCode === 'undefined') throw new Error('qrcode.min.js not loaded');
+      await QRCode.toCanvas(elCanvas, text, {
+        errorCorrectionLevel: elQrEc.value,
+        scale: Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2)),
+        margin: 1,
+      });
+      return;
+    }
+
+    // bwip-js path
+    if (typeof bwipjs === 'undefined') throw new Error('bwip-js not loaded');
+    const opts = { bcid, text, includetext: false };
+
+    if (bcid === 'azteccode') {
+      opts.scale    = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
+      opts.eclevel  = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
+      const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
+      const fmt     = elFormat.value;
+      if (layers > 0)         opts.layers = layers;
+      if (fmt === 'full')     opts.format = 'full';
+      if (fmt === 'compact')  opts.format = 'compact';
+    } else if (bcid === 'qrcode') {
+      opts.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
+      opts.eclevel = elQrEc.value;
+    } else if (bcid === 'datamatrix') {
+      opts.scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
+    } else if (bcid === 'pdf417') {
+      opts.scale = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
+      const cols = Math.max(0, Math.min(30, parseInt(elPdfCols.value, 10) || 0));
+      const rows = Math.max(0, Math.min(90, parseInt(elPdfRows.value, 10) || 0));
+      if (cols > 0) opts.columns = cols;
+      if (rows > 0) opts.rows    = rows;
+    }
+
+    bwipjs.toCanvas(elCanvas, opts);
+  }
+
+  // === Generate payload ===
+  elGenerate.addEventListener('click', async () => {
+    if (running) return;
+    clearError();
+
+    const payloadSize = Math.max(10, Math.min(100000, parseInt(elPayloadSize.value, 10) || 500));
+
+    const payload = new Uint8Array(payloadSize);
+    crypto.getRandomValues(payload);
+
+    const { hex: runIdHex, bytes: runIdBytes } = generateRunId();
+    const payloadHash = await sha256hex(payload);
+
+    const bcid      = elBcid.value;
+    const encLib    = elEncLib.value;
+    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 120));
+    const fps       = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 12));
+    const blocks    = Math.ceil(payloadSize / blockSize);
+
+    const config = {
+      runId:           runIdHex,
+      label:           elLabel.value.trim() || null,
+      timestamp:       new Date().toISOString(),
+      encoderLib:      encLib,
+      barcodeType:     bcid,
+      packetEncoding:  'base64url',
+      blockSize,
+      fps,
+      blocks,
+      payloadSize,
+      payloadHash,
+      matMode:         elMatMode.value,
+      matPad:          Math.max(0, parseInt(elMatPad.value, 10) || 24),
+      env: {
+        distance:   elDistance.value.trim()   || null,
+        brightness: elBrightness.value.trim() || null,
+        notes:      elNotes.value.trim()      || null,
+      },
+    };
+
+    if (bcid === 'azteccode') {
+      config.ecLevel     = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
+      config.scale       = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
+      config.aztecFormat = elFormat.value || 'auto';
+      config.aztecLayers = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
+    } else if (bcid === 'qrcode') {
+      config.ecLevel = elQrEc.value;
+      config.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
+    } else if (bcid === 'datamatrix') {
+      config.scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
+    } else if (bcid === 'pdf417') {
+      config.scale   = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
+      config.pdfCols = Math.max(0, parseInt(elPdfCols.value, 10) || 0);
+      config.pdfRows = Math.max(0, parseInt(elPdfRows.value, 10) || 0);
+    }
+
+    // Save state
+    currentPayload    = payload;
+    currentRunIdHex   = runIdHex;
+    currentRunIdBytes = runIdBytes;
+    currentConfig     = config;
+    seqNum            = 0;
+
+    // Show config JSON
+    elConfigJson.value = JSON.stringify(config, null, 2);
+    elConfigSec.style.display = '';
+
+    elRunIdDisplay.textContent = 'Run: ' + runIdHex;
+    elReadyBadge.textContent = 'Ready';
+    elReadyBadge.className = 'badge ready';
+
+    elStats.textContent = `Payload generated — ${formatBytes(payloadSize)} | ${blocks} blocks | hash: ${payloadHash.slice(0, 12)}…`;
+    setButtons(false, true);
+    clearCanvas();
+  });
+
+  // === Start ===
+  elStart.addEventListener('click', async () => {
+    if (running || !currentPayload) return;
+    clearError();
+    clearCanvas();
+    applyMatSettings();
+    updateBarcodeUI();
+
+    if (!window.qram) { showError("qram library didn't load."); return; }
+
+    const blockSize = currentConfig.blockSize;
+    const fps       = currentConfig.fps;
+    const delay     = 1000 / fps;
+
+    let enc;
+    try { enc = new qram.Encoder({ data: currentPayload, blockSize }); }
+    catch (e) { showError('Failed to create qram.Encoder', e); return; }
+
+    try {
+      stream = await enc.createReadableStream();
+      reader = stream.getReader();
+    } catch (e) {
+      showError('Failed to create QRAM stream', e);
+      return;
+    }
+
+    running         = true;
+    cancelRequested = false;
+    seqNum          = 0;
+    setButtons(true, true);
+
+    const blocks   = currentConfig.blocks;
+    const payloadSz = currentPayload.length;
+
+    try {
+      while (!cancelRequested) {
+        const { value: pkt, done } = await reader.read();
+        if (done) break;
+
+        // Build bench packet: 6-byte header + qram data → base64url
+        const benchPkt = buildBenchPacket(currentRunIdBytes, seqNum, pkt.data);
+        const text     = bytesToBase64Url(benchPkt);
+
+        try { await renderPacketAsBarcode(text); }
+        catch (e) { showError('Render error: ' + e.message, e); break; }
+
+        seqNum = (seqNum + 1) & 0xffff;
+        elStats.textContent = `Streaming — run ${currentRunIdHex} | pkt #${seqNum} | ${formatBytes(payloadSz)} | ${blocks} blocks`;
+
+        await new Promise(ok => setTimeout(ok, delay));
+      }
+    } catch (e) {
+      showError('Streaming loop error', e);
+    } finally {
+      try { await reader?.cancel(); } catch (_) {}
+      try { await stream?.cancel?.(); } catch (_) {}
+      reader = null;
+      stream = null;
+      running         = false;
+      cancelRequested = false;
+      setButtons(false, true);
+      elStats.textContent += ' — stopped at pkt #' + seqNum;
+    }
+  });
+
+  // === Stop ===
+  elStop.addEventListener('click', () => {
+    cancelRequested = true;
+    try { reader?.cancel(); } catch (_) {}
+    try { stream?.cancel?.(); } catch (_) {}
+  });
+
+  // === Copy config ===
+  elCopyConfig.addEventListener('click', async () => {
+    const text = elConfigJson.value;
+    try {
+      await navigator.clipboard.writeText(text);
+      elCopyConfig.textContent = 'Copied!';
+      setTimeout(() => elCopyConfig.textContent = 'Copy Config JSON', 2500);
+    } catch (_) {
+      elConfigJson.select();
+      document.execCommand('copy');
+    }
+  });
+
+  // Init
+  clearCanvas();
+  updateBarcodeUI();
+  applyMatSettings();
+  setButtons(false, false);
+})();
+</script>
+</body>
+</html>
