@@ -291,6 +291,7 @@
       <h3>Batch Progress</h3>
       <div id="batch-progress">No batch active</div>
       <button id="export-all-btn" class="btn-export" disabled>Export All Results (JSON)</button>
+      <button id="download-all-btn" class="btn-export" style="background:#00a844;margin-top:6px;" disabled>⬇ Download All Results</button>
     </div>
 
     <!-- Result (shown on complete or manual export) -->
@@ -300,6 +301,7 @@
         <div id="hash-result" class="hash-result hash-unknown">—</div>
         <textarea id="result-json" readonly></textarea>
         <button id="copy-result" class="btn-copy">Copy Result JSON</button>
+        <button id="download-result-btn" class="btn-copy" style="background:#00a8cc;margin-top:6px;">⬇ Download This Result</button>
       </div>
     </div>
   </div>
@@ -331,7 +333,8 @@
   const resultSection    = document.getElementById('result-section');
   const hashResultEl     = document.getElementById('hash-result');
   const resultJsonEl     = document.getElementById('result-json');
-  const copyResultBtn    = document.getElementById('copy-result');
+  const copyResultBtn       = document.getElementById('copy-result');
+  const downloadResultBtn   = document.getElementById('download-result-btn');
 
   const cameraBtn       = document.getElementById('camera-btn');
   const videoFileBtn    = document.getElementById('video-file-btn');
@@ -352,6 +355,39 @@
   const encoderConfigInput = document.getElementById('encoder-config-input');
   const batchProgressEl    = document.getElementById('batch-progress');
   const exportAllBtn       = document.getElementById('export-all-btn');
+  const downloadAllBtn     = document.getElementById('download-all-btn');
+
+  // === Device metadata cache (Task 6) ===
+  let _deviceMeta = null;
+
+  function getTimestampStr() {
+    const d = new Date();
+    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
+  }
+
+  async function collectDeviceMeta() {
+    const meta = {
+      userAgent:        navigator.userAgent,
+      platform:         navigator.platform || null,
+      devicePixelRatio: window.devicePixelRatio || 1,
+      screenWidth:      screen.width,
+      screenHeight:     screen.height,
+      colorDepth:       screen.colorDepth,
+      cameraWidth:      video.videoWidth  || null,
+      cameraHeight:     video.videoHeight || null,
+      batteryLevel:     null,
+      batteryCharging:  null,
+    };
+    if (navigator.getBattery) {
+      try {
+        const b = await navigator.getBattery();
+        meta.batteryLevel   = Math.round(b.level * 100);
+        meta.batteryCharging = b.charging;
+      } catch (_) {}
+    }
+    _deviceMeta = meta;
+    return meta;
+  }
 
   // === State ===
   let scanning       = false;
@@ -690,24 +726,21 @@
 
     if (detectedRunId !== runIdHex) return; // shouldn't happen but safety check
 
-    // Dedup by sequence number
-    if (seenSeqNums.has(seqNum)) {
+    // Dedup by (runId, seqNum) — keyed per run to avoid cross-run collisions (Task 8)
+    const dedupKey = runIdHex + ':' + seqNum;
+    if (seenSeqNums.has(dedupKey)) {
       dedupDrops++;
       return;
     }
-    seenSeqNums.add(seqNum);
+    seenSeqNums.add(dedupKey);
 
     const now     = Date.now();
     const elapsed = now - runStartTime;
 
     if (!firstPacketTime) firstPacketTime = now;
 
-    uniquePackets++;
+    // uniquePackets incremented only after successful enqueue (see below)
     resetIdleTimeout();
-
-    if (packetTimeline.length < 1000) {
-      packetTimeline.push({ seq: seqNum, elapsedMs: elapsed });
-    }
 
     flashIndicator();
 
@@ -716,6 +749,11 @@
     try {
       const progress = await decoder.enqueue(qramData);
       enqueueAccepts++;
+      // uniquePackets only increments after dedup pass AND successful enqueue (Task 8)
+      uniquePackets++;
+      if (packetTimeline.length < 1000) {
+        packetTimeline.push({ seq: seqNum, elapsedMs: elapsed });
+      }
 
       if (progress) {
         const newBlocks = progress.receivedBlocks;
@@ -834,7 +872,7 @@
     const overheadRatio         = (lastTotalBlocks > 0 && uniquePackets > 0)
       ? Math.round(uniquePackets / lastTotalBlocks * 100) / 100 : null;
 
-    const resultObj = buildResultJson({
+    const resultObj = await buildResultJson({
       success: true,
       failureReason: null,
       decodeCompleteTime,
@@ -856,7 +894,8 @@
     batchRunCount++;
     batchSuccessCount++;
     updateBatchProgress();
-    exportAllBtn.disabled = false;
+    exportAllBtn.disabled  = false;
+    downloadAllBtn.disabled = false;
 
     showResult(resultObj, hashVerified);
 
@@ -880,7 +919,7 @@
     const overheadRatio = (lastTotalBlocks > 0 && uniquePackets > 0)
       ? Math.round(uniquePackets / lastTotalBlocks * 100) / 100 : null;
 
-    const resultObj = buildResultJson({
+    const resultObj = await buildResultJson({
       success: false,
       failureReason: reason,
       decodeCompleteTime: null,
@@ -902,12 +941,18 @@
     batchRunCount++;
     batchFailCount++;
     updateBatchProgress();
-    exportAllBtn.disabled = false;
+    exportAllBtn.disabled  = false;
+    downloadAllBtn.disabled = false;
 
     showResult(resultObj, null);
   }
 
-  function buildResultJson(extras) {
+  async function buildResultJson(extras) {
+    // Refresh camera dimensions at result-build time (Task 6)
+    const devMeta = await collectDeviceMeta();
+    devMeta.cameraWidth  = video.videoWidth  || null;
+    devMeta.cameraHeight = video.videoHeight || null;
+
     const libInfo = getDecoderLibInfo();
     const encoderConfig = getEncoderConfigForRun(detectedRunId);
 
@@ -955,6 +1000,8 @@
         notes:      envNotesEl.value.trim()      || null,
       },
 
+      device: devMeta,
+
       // Library versions
       qramVersion: (window.qram && qram.version) ? qram.version : (window.qram ? 'loaded (version unknown)' : 'not loaded'),
     };
@@ -972,7 +1019,13 @@
         ecLevel:        encoderConfig.ecLevel        || null,
         scale:          encoderConfig.scale          || null,
         randomSeed:     encoderConfig.randomSeed     || null,
+        expectedHash:   encoderConfig.payloadHash    || null,
+        screen:         encoderConfig.screen         || null,
+        renderedCanvasSize: encoderConfig.renderedCanvasSize || null,
       };
+      // Promote for analysis convenience
+      result.randomSeed    = encoderConfig.randomSeed  || null;
+      result.expectedHash  = result.expectedHash || encoderConfig.payloadHash || null;
     }
 
     return result;
@@ -1065,7 +1118,8 @@
     batchSuccessCount = 0;
     batchFailCount    = 0;
     previousRunId     = null;
-    exportAllBtn.disabled = true;
+    exportAllBtn.disabled  = true;
+    downloadAllBtn.disabled = true;
     updateBatchProgress();
   }
 
@@ -1224,7 +1278,7 @@
     }
   });
 
-  // Export all batch results
+  // Export all batch results (copy)
   exportAllBtn.addEventListener('click', async () => {
     if (allBatchResults.length === 0) return;
     const jsonStr = JSON.stringify(allBatchResults, null, 2);
@@ -1237,6 +1291,37 @@
       resultJsonEl.value = jsonStr;
       resultSection.classList.add('show');
     }
+  });
+
+  // Download all results as file (Task 5)
+  downloadAllBtn.addEventListener('click', () => {
+    if (allBatchResults.length === 0) return;
+    const jsonStr = JSON.stringify(allBatchResults, null, 2);
+    const filename = `qram-decoder-results-${getTimestampStr()}.json`;
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Download current (last shown) result as file (Task 5)
+  downloadResultBtn.addEventListener('click', () => {
+    const jsonStr = resultJsonEl.value;
+    if (!jsonStr) return;
+    let runId = null;
+    try { runId = JSON.parse(jsonStr).runId; } catch (_) {}
+    const ts       = getTimestampStr();
+    const filename = runId ? `qram-decoder-${runId}-${ts}.json` : `qram-decoder-result-${ts}.json`;
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   });
 
   formatSelect.addEventListener('change', () => {
