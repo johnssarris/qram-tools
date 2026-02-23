@@ -1151,7 +1151,7 @@
       const decoderLib = decoderLibSelect.value;
 
       cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 2160 }, height: { ideal: 2160 } },
+        video: { facingMode: 'environment', height: { ideal: 2160 } },
       });
       video.srcObject = cameraStream;
       video.playsInline = true;
