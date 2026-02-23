@@ -11,6 +11,7 @@
   <link rel="manifest" href="manifest.json">
 
   <script src="./libs/qram.min.js"></script>
+  <script src="./libs/jsQR.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 
   <style>
@@ -29,12 +30,17 @@
     .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
     .row:last-child { margin-bottom: 0; }
 
-    select, input[type="text"] {
+    select, input[type="text"], input[type="number"], textarea {
       border-radius: 8px; border: 1px solid #333;
       background: #0d1117; color: #eee; padding: 8px 10px;
       font-size: 0.88rem;
     }
-    input[type="text"] { flex: 1; min-width: 80px; }
+    input[type="text"], input[type="number"] { flex: 1; min-width: 80px; }
+    input[type="number"] { max-width: 80px; }
+    textarea {
+      width: 100%; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;
+      font-size: 10px; color: #0f0; resize: vertical; box-sizing: border-box;
+    }
 
     button {
       border-radius: 10px; border: none; cursor: pointer;
@@ -44,6 +50,7 @@
     .btn-secondary { background: #16213e; color: #eee; border: 1px solid #333; }
     .btn-danger    { background: #ff4b4b; color: #fff; }
     .btn-copy      { background: #00d4ff; color: #000; width: 100%; margin-top: 8px; }
+    .btn-export    { background: #ffd700; color: #000; width: 100%; margin-top: 8px; }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
 
     #video-container {
@@ -117,6 +124,18 @@
 
     #result-section { display: none; }
     #result-section.show { display: block; }
+
+    /* Batch status */
+    #batch-progress {
+      font-family: ui-monospace, monospace; font-size: .82rem; color: #ffd700;
+      min-height: 18px; margin: 6px 0; text-align: center;
+    }
+    .batch-section { background: #1a2a1a; border: 1px solid #2a4a2a; }
+
+    /* Encoder config textarea */
+    #encoder-config-input {
+      height: 80px;
+    }
   </style>
 </head>
 <body>
@@ -134,6 +153,11 @@
         <input id="video-file-input" type="file" accept="video/*" style="display:none">
       </div>
       <div class="row">
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Decoder</label>
+        <select id="decoder-lib-select">
+          <option value="zxing" selected>ZXing</option>
+          <option value="jsqr">jsQR (QR only)</option>
+        </select>
         <label style="color:#bbb;font-size:.85rem;font-weight:700;">Format</label>
         <select id="format-select">
           <option value="AUTO" selected>Auto</option>
@@ -149,6 +173,19 @@
           <option value="80" selected>80ms</option>
           <option value="50">50ms</option>
         </select>
+      </div>
+      <div class="row">
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Encoding</label>
+        <select id="packet-encoding-select">
+          <option value="base64url" selected>base64url</option>
+          <option value="binary">binary</option>
+        </select>
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Timeout</label>
+        <input type="number" id="run-timeout" value="120" min="10" max="3600" style="max-width:70px">
+        <span style="color:#888;font-size:.8rem;">sec</span>
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Idle timeout</label>
+        <input type="number" id="idle-timeout" value="90" min="10" max="600" style="max-width:70px">
+        <span style="color:#888;font-size:.8rem;">sec</span>
       </div>
     </div>
 
@@ -171,9 +208,16 @@
       </div>
     </div>
 
+    <!-- Encoder Config Echo -->
+    <div class="section">
+      <h3>Encoder Config (paste for result echo)</h3>
+      <textarea id="encoder-config-input" placeholder="Paste the encoder config JSON here (or JSON array for batch). Key fields will be echoed into results."></textarea>
+    </div>
+
     <!-- Video -->
     <div id="video-container">
       <video id="video" autoplay playsinline muted></video>
+      <canvas id="jsqr-canvas" style="display:none"></canvas>
       <div id="overlay"><div id="scan-region"></div></div>
       <div id="scan-indicator">Packet</div>
     </div>
@@ -221,6 +265,18 @@
           <div class="stat-value" id="st-elapsed">0s</div>
           <div class="stat-label">Elapsed</div>
         </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-enqueue-accepts">0</div>
+          <div class="stat-label">Enq accepts</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value red" id="st-enqueue-rejects">0</div>
+          <div class="stat-label">Enq rejects</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="st-scans-per-sec">—</div>
+          <div class="stat-label">Scans/sec</div>
+        </div>
       </div>
     </div>
 
@@ -228,6 +284,13 @@
     <div class="section">
       <h3>Block Decode Timeline</h3>
       <div id="block-timeline"></div>
+    </div>
+
+    <!-- Batch progress -->
+    <div class="section batch-section">
+      <h3>Batch Progress</h3>
+      <div id="batch-progress">No batch active</div>
+      <button id="export-all-btn" class="btn-export" disabled>Export All Results (JSON)</button>
     </div>
 
     <!-- Result (shown on complete or manual export) -->
@@ -245,6 +308,7 @@
 (() => {
   // === Elements ===
   const video          = document.getElementById('video');
+  const jsqrCanvas     = document.getElementById('jsqr-canvas');
   const errorMsg       = document.getElementById('error-msg');
   const scanIndicator  = document.getElementById('scan-indicator');
   const progressFill   = document.getElementById('progress-fill');
@@ -259,6 +323,9 @@
   const stBlocks        = document.getElementById('st-blocks');
   const stBlocksTotal   = document.getElementById('st-blocks-total');
   const stElapsed       = document.getElementById('st-elapsed');
+  const stEnqueueAccepts = document.getElementById('st-enqueue-accepts');
+  const stEnqueueRejects = document.getElementById('st-enqueue-rejects');
+  const stScansPerSec    = document.getElementById('st-scans-per-sec');
 
   const blockTimelineEl  = document.getElementById('block-timeline');
   const resultSection    = document.getElementById('result-section');
@@ -272,11 +339,19 @@
   const resetBtn        = document.getElementById('reset-btn');
   const formatSelect    = document.getElementById('format-select');
   const scanIntervalSel = document.getElementById('scan-interval');
+  const decoderLibSelect = document.getElementById('decoder-lib-select');
+  const packetEncSelect  = document.getElementById('packet-encoding-select');
+  const runTimeoutEl     = document.getElementById('run-timeout');
+  const idleTimeoutEl    = document.getElementById('idle-timeout');
 
   const expectedHashEl  = document.getElementById('expected-hash');
   const envDistanceEl   = document.getElementById('env-distance');
   const envBrightnessEl = document.getElementById('env-brightness');
   const envNotesEl      = document.getElementById('env-notes');
+
+  const encoderConfigInput = document.getElementById('encoder-config-input');
+  const batchProgressEl    = document.getElementById('batch-progress');
+  const exportAllBtn       = document.getElementById('export-all-btn');
 
   // === State ===
   let scanning       = false;
@@ -286,10 +361,13 @@
   let runStartTime   = null;
 
   // Counters
-  let scanAttempts   = 0;
-  let scanSuccesses  = 0;
-  let dedupDrops     = 0;
-  let uniquePackets  = 0;
+  let scanAttempts    = 0;
+  let scanSuccesses   = 0;
+  let dedupDrops      = 0;
+  let uniquePackets   = 0;
+  let enqueueAttempts = 0;
+  let enqueueAccepts  = 0;
+  let enqueueRejects  = 0;
 
   // Timing
   let firstPacketTime = null;
@@ -308,8 +386,21 @@
   let zxingReader   = null;
   let cameraStream  = null;
 
-  // UI update interval
+  // jsQR
+  let jsqrTimer = null;
+
+  // Timeouts
   let uiTimer = null;
+  let runTimeoutTimer  = null;
+  let idleTimeoutTimer = null;
+  let lastPacketReceivedTime = null;
+
+  // Batch
+  let allBatchResults = [];
+  let batchRunCount   = 0;
+  let batchSuccessCount = 0;
+  let batchFailCount    = 0;
+  let previousRunId     = null;
 
   // === Helpers ===
   function showError(msg) {
@@ -343,19 +434,66 @@
     return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // Parse a bench-encoded barcode text.
-  // Format: base64url( [runId: 4 bytes] [seqNum: 2 bytes BE] [qramData: N bytes] )
-  function parsePacket(text) {
+  // Parse a bench-encoded barcode.
+  // New header (8 bytes): [runId: 4 bytes] [seqNum: 4 bytes BE] [qramData: N bytes]
+  function parsePacket(textOrBytes) {
     try {
-      const raw = base64UrlToBytes(text);
-      if (raw.length < 7) return null; // need ≥ 6 header + 1 qram byte
+      const encoding = packetEncSelect.value;
+      let raw;
+
+      if (encoding === 'binary') {
+        // textOrBytes is already a Uint8Array from getRawBytes
+        if (textOrBytes instanceof Uint8Array) {
+          raw = textOrBytes;
+        } else {
+          return null;
+        }
+      } else {
+        // base64url text
+        raw = base64UrlToBytes(textOrBytes);
+      }
+
+      if (raw.length < 9) return null; // need >= 8 header + 1 qram byte
       const runIdHex = Array.from(raw.slice(0, 4), b => b.toString(16).padStart(2, '0')).join('');
-      const seqNum   = (raw[4] << 8) | raw[5];
-      const qramData = raw.slice(6);
+      const seqNum   = (raw[4] << 24 | raw[5] << 16 | raw[6] << 8 | raw[7]) >>> 0;
+      const qramData = raw.slice(8);
       return { runIdHex, seqNum, qramData };
     } catch (_) {
       return null;
     }
+  }
+
+  // Get encoder config for current run from pasted JSON
+  function getEncoderConfigForRun(runId) {
+    const text = encoderConfigInput.value.trim();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed.find(c => c.runId === runId) || null;
+      }
+      if (parsed.runId === runId) return parsed;
+      // If single config with no runId match, return it anyway (user may have pasted a single config)
+      return parsed;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function getDecoderLibInfo() {
+    const lib = decoderLibSelect.value;
+    if (lib === 'zxing') {
+      if (window.ZXingBrowser) {
+        // Try to get version
+        const ver = ZXingBrowser.version || ZXingBrowser.VERSION || '0.1.5';
+        return { name: 'ZXing', version: 'ZXing @' + ver };
+      }
+      return { name: 'ZXing', version: 'ZXing @0.1.5' };
+    }
+    if (lib === 'jsqr') {
+      return { name: 'jsQR', version: 'jsQR (bundled)' };
+    }
+    return { name: lib, version: lib };
   }
 
   // === UI Updates ===
@@ -368,12 +506,18 @@
     stUniquePkts.textContent    = uniquePackets;
     stBlocks.textContent        = lastReceivedBlocks;
     stBlocksTotal.textContent   = lastTotalBlocks > 0 ? lastTotalBlocks : '?';
+    stEnqueueAccepts.textContent = enqueueAccepts;
+    stEnqueueRejects.textContent = enqueueRejects;
 
     const elapsed = runStartTime ? (Date.now() - runStartTime) / 1000 : 0;
     stElapsed.textContent = elapsed > 0 ? elapsed.toFixed(1) + 's' : '0s';
 
     stPktsPerSec.textContent = (elapsed > 0.5 && uniquePackets > 0)
       ? (uniquePackets / elapsed).toFixed(1) + '/s' : '—';
+
+    // Actual scans per second
+    stScansPerSec.textContent = (elapsed > 0.5 && scanAttempts > 0)
+      ? (scanAttempts / elapsed).toFixed(1) + '/s' : '—';
 
     const pct = lastTotalBlocks > 0
       ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100) : 0;
@@ -390,6 +534,71 @@
     if (uiTimer) { clearInterval(uiTimer); uiTimer = null; }
   }
 
+  // === Timeout management ===
+  function startRunTimeout() {
+    clearRunTimeout();
+    const sec = Math.max(10, parseInt(runTimeoutEl.value, 10) || 120);
+    runTimeoutTimer = setTimeout(() => {
+      onRunTimeout();
+    }, sec * 1000);
+  }
+
+  function clearRunTimeout() {
+    if (runTimeoutTimer) { clearTimeout(runTimeoutTimer); runTimeoutTimer = null; }
+  }
+
+  function startIdleTimeout() {
+    clearIdleTimeout();
+    const sec = Math.max(10, parseInt(idleTimeoutEl.value, 10) || 90);
+    idleTimeoutTimer = setTimeout(() => {
+      onIdleTimeout();
+    }, sec * 1000);
+  }
+
+  function clearIdleTimeout() {
+    if (idleTimeoutTimer) { clearTimeout(idleTimeoutTimer); idleTimeoutTimer = null; }
+  }
+
+  function resetIdleTimeout() {
+    lastPacketReceivedTime = Date.now();
+    startIdleTimeout();
+  }
+
+  async function onRunTimeout() {
+    if (!scanning) return;
+    scanning = false;
+    stopUITimer();
+    clearRunTimeout();
+    clearIdleTimeout();
+    await exportPartialResult('timeout');
+    // In batch mode, wait for next run ID; in single mode, stop
+    if (allBatchResults.length > 0 || batchRunCount > 0) {
+      waitForNextRun();
+    } else {
+      stopAllInputs();
+    }
+  }
+
+  async function onIdleTimeout() {
+    if (!scanning || !detectedRunId) return;
+    scanning = false;
+    stopUITimer();
+    clearRunTimeout();
+    clearIdleTimeout();
+    await exportPartialResult('idle_timeout');
+    waitForNextRun();
+  }
+
+  function waitForNextRun() {
+    // Keep scanning active but reset state for next run
+    scanning = true;
+    previousRunId = detectedRunId;
+    resetRunState();
+    resetRunUI();
+    updateBatchProgress();
+    startUITimer();
+  }
+
   // === ZXing ===
   function stopZXing() {
     try { if (zxingControls?.stop) zxingControls.stop(); } catch (_) {}
@@ -398,13 +607,21 @@
     zxingReader = null;
   }
 
+  // === jsQR ===
+  function stopJsQR() {
+    if (jsqrTimer) { clearInterval(jsqrTimer); jsqrTimer = null; }
+  }
+
   function stopCamera() {
     if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
   }
 
   function stopAllInputs() {
     stopZXing();
+    stopJsQR();
     stopCamera();
+    clearRunTimeout();
+    clearIdleTimeout();
     try {
       if (video.src && video.src.startsWith('blob:')) URL.revokeObjectURL(video.src);
     } catch (_) {}
@@ -430,32 +647,48 @@
     zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, interval);
   }
 
-  // === ZXing callback — fires on every scan attempt (success or fail) ===
-  async function onZXingCallback(result, err) {
+  // === Scan callback (shared by ZXing and jsQR) ===
+  async function onScanResult(rawTextOrBytes) {
     if (!scanning) return;
 
-    scanAttempts++;
-
-    if (!result) return; // scan miss (NotFoundException etc.)
+    const parsed = parsePacket(rawTextOrBytes);
+    if (!parsed) return; // not a bench-format packet
 
     scanSuccesses++;
 
-    const rawText = result.getText();
-    if (!rawText) return;
-
-    const parsed = parsePacket(rawText);
-    if (!parsed) return; // not a bench-format packet — ignore
-
     const { runIdHex, seqNum, qramData } = parsed;
 
-    // Latch onto the first run ID we see
+    // Run ID change detection (batch mode)
+    if (detectedRunId !== null && detectedRunId !== runIdHex) {
+      // The encoder moved to a new run
+      // Export current run results first
+      if (uniquePackets > 0) {
+        const prevScanning = scanning;
+        scanning = false;
+        stopUITimer();
+        clearRunTimeout();
+        clearIdleTimeout();
+        await exportPartialResult('run_id_changed');
+        scanning = prevScanning;
+      }
+      // Reset for new run
+      previousRunId = detectedRunId;
+      resetRunState();
+      resetRunUI();
+      updateBatchProgress();
+    }
+
+    // Latch onto the first run ID we see (or new run after reset)
     if (detectedRunId === null) {
       detectedRunId = runIdHex;
       runStartTime  = Date.now();
+      lastPacketReceivedTime = Date.now();
       startUITimer();
-    } else if (detectedRunId !== runIdHex) {
-      return; // different run — ignore
+      startRunTimeout();
+      startIdleTimeout();
     }
+
+    if (detectedRunId !== runIdHex) return; // shouldn't happen but safety check
 
     // Dedup by sequence number
     if (seenSeqNums.has(seqNum)) {
@@ -470,20 +703,24 @@
     if (!firstPacketTime) firstPacketTime = now;
 
     uniquePackets++;
+    resetIdleTimeout();
+
     if (packetTimeline.length < 1000) {
       packetTimeline.push({ seq: seqNum, elapsedMs: elapsed });
     }
 
     flashIndicator();
 
+    // Enqueue into qram decoder
+    enqueueAttempts++;
     try {
       const progress = await decoder.enqueue(qramData);
+      enqueueAccepts++;
 
       if (progress) {
         const newBlocks = progress.receivedBlocks;
 
         if (newBlocks > lastReceivedBlocks) {
-          // Record a timeline entry for each newly decoded block
           const tNow     = Date.now();
           const tElapsed = tNow - runStartTime;
 
@@ -507,15 +744,70 @@
         lastTotalBlocks    = progress.totalBlocks;
       }
     } catch (_) {
-      // qram rejected the packet — still counted as uniquePacket
+      enqueueRejects++;
     }
+  }
+
+  // === ZXing callback ===
+  async function onZXingCallback(result, err) {
+    if (!scanning) return;
+    scanAttempts++;
+
+    if (!result) return; // scan miss
+
+    const encoding = packetEncSelect.value;
+    if (encoding === 'binary') {
+      // Try getRawBytes first for binary mode
+      try {
+        const rawBytes = result.getRawBytes();
+        if (rawBytes && rawBytes.length > 0) {
+          await onScanResult(rawBytes);
+          return;
+        }
+      } catch (_) {}
+      // Fallback to text
+    }
+
+    const rawText = result.getText();
+    if (!rawText) return;
+    await onScanResult(rawText);
+  }
+
+  // === jsQR scanning loop ===
+  function startJsQRLoop() {
+    if (!window.jsQR) throw new Error('jsQR library not loaded');
+    const interval = parseInt(scanIntervalSel.value, 10) || 80;
+    const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
+
+    jsqrTimer = setInterval(() => {
+      if (!scanning) return;
+      if (video.readyState < 2) return; // HAVE_CURRENT_DATA
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      if (!w || !h) return;
+
+      jsqrCanvas.width  = w;
+      jsqrCanvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+
+      scanAttempts++;
+
+      const imageData = ctx.getImageData(0, 0, w, h);
+      const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+
+      if (code && code.data) {
+        onScanResult(code.data);
+      }
+    }, interval);
   }
 
   // === Completion ===
   async function onComplete(result) {
     scanning = false;
     stopUITimer();
-    stopAllInputs();
+    clearRunTimeout();
+    clearIdleTimeout();
     updateUI();
 
     const decodeCompleteTime = Date.now();
@@ -532,8 +824,11 @@
       ? firstPacketTime - runStartTime : null;
     const timeToFirstBlockMs    = (firstBlockTime && runStartTime)
       ? firstBlockTime - runStartTime : null;
-    const packetsPerSec         = (totalDecodeTimeMs > 0 && uniquePackets > 0)
-      ? Math.round(uniquePackets / (totalDecodeTimeMs / 1000) * 10) / 10 : null;
+    const elapsed               = totalDecodeTimeMs ? totalDecodeTimeMs / 1000 : 0;
+    const packetsPerSec         = (elapsed > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / elapsed * 10) / 10 : null;
+    const actualScansPerSec     = (elapsed > 0 && scanAttempts > 0)
+      ? Math.round(scanAttempts / elapsed * 10) / 10 : null;
     const scanSuccessRate       = scanAttempts > 0
       ? Math.round(scanSuccesses / scanAttempts * 1000) / 1000 : null;
     const overheadRatio         = (lastTotalBlocks > 0 && uniquePackets > 0)
@@ -551,19 +846,35 @@
       expectedHash: expectedHash || null,
       hashVerified,
       packetsPerSec,
+      actualScansPerSec,
       scanSuccessRate,
       overheadRatio,
     });
 
+    // Add to batch results
+    allBatchResults.push(resultObj);
+    batchRunCount++;
+    batchSuccessCount++;
+    updateBatchProgress();
+    exportAllBtn.disabled = false;
+
     showResult(resultObj, hashVerified);
+
+    // In batch-aware mode, wait for next run
+    if (cameraStream || video.src) {
+      waitForNextRun();
+    }
   }
 
   // === Partial / failed run export ===
   async function exportPartialResult(reason) {
     const now = Date.now();
     const totalMs = runStartTime ? now - runStartTime : null;
-    const packetsPerSec = (totalMs > 0 && uniquePackets > 0)
-      ? Math.round(uniquePackets / (totalMs / 1000) * 10) / 10 : null;
+    const elapsed = totalMs ? totalMs / 1000 : 0;
+    const packetsPerSec = (elapsed > 0 && uniquePackets > 0)
+      ? Math.round(uniquePackets / elapsed * 10) / 10 : null;
+    const actualScansPerSec = (elapsed > 0 && scanAttempts > 0)
+      ? Math.round(scanAttempts / elapsed * 10) / 10 : null;
     const scanSuccessRate = scanAttempts > 0
       ? Math.round(scanSuccesses / scanAttempts * 1000) / 1000 : null;
     const overheadRatio = (lastTotalBlocks > 0 && uniquePackets > 0)
@@ -581,19 +892,31 @@
       expectedHash: expectedHashEl.value.trim() || null,
       hashVerified: null,
       packetsPerSec,
+      actualScansPerSec,
       scanSuccessRate,
       overheadRatio,
     });
+
+    // Add to batch results
+    allBatchResults.push(resultObj);
+    batchRunCount++;
+    batchFailCount++;
+    updateBatchProgress();
+    exportAllBtn.disabled = false;
 
     showResult(resultObj, null);
   }
 
   function buildResultJson(extras) {
-    return {
+    const libInfo = getDecoderLibInfo();
+    const encoderConfig = getEncoderConfigForRun(detectedRunId);
+
+    const result = {
       runId:              detectedRunId,
       timestamp:          new Date().toISOString(),
-      decoderLib:         'ZXing @0.1.5',
+      decoderLib:         libInfo.version,
       barcodeFormat:      formatSelect.value,
+      packetEncoding:     packetEncSelect.value,
       scanIntervalMs:     parseInt(scanIntervalSel.value, 10),
       success:            extras.success,
       failureReason:      extras.failureReason,
@@ -605,8 +928,13 @@
       scanAttempts,
       scanSuccesses,
       scanSuccessRate:    extras.scanSuccessRate,
+      actualScansPerSec:  extras.actualScansPerSec,
       dedupDrops,
       uniquePackets,
+
+      enqueueAttempts,
+      enqueueAccepts,
+      enqueueRejects,
 
       blocksDecoded:      lastReceivedBlocks,
       blocksTotal:        lastTotalBlocks,
@@ -619,7 +947,6 @@
       hashVerified:       extras.hashVerified,
 
       blockTimeline,
-      // Cap packet timeline to keep JSON size manageable
       packetTimeline: packetTimeline.slice(0, 500),
 
       env: {
@@ -627,7 +954,28 @@
         brightness: envBrightnessEl.value.trim() || null,
         notes:      envNotesEl.value.trim()      || null,
       },
+
+      // Library versions
+      qramVersion: (window.qram && qram.version) ? qram.version : (window.qram ? 'loaded (version unknown)' : 'not loaded'),
     };
+
+    // Echo encoder config fields if available
+    if (encoderConfig) {
+      result.encoderConfig = {
+        barcodeType:    encoderConfig.barcodeType    || null,
+        blockSize:      encoderConfig.blockSize      || null,
+        fps:            encoderConfig.fps            || null,
+        payloadSize:    encoderConfig.payloadSize    || null,
+        packetEncoding: encoderConfig.packetEncoding || null,
+        encoderLib:     encoderConfig.encoderLib     || null,
+        encoderLibVersion: encoderConfig.encoderLibVersion || null,
+        ecLevel:        encoderConfig.ecLevel        || null,
+        scale:          encoderConfig.scale          || null,
+        randomSeed:     encoderConfig.randomSeed     || null,
+      };
+    }
+
+    return result;
   }
 
   function showResult(obj, hashVerified) {
@@ -636,10 +984,10 @@
     resultSection.classList.add('show');
 
     if (hashVerified === true) {
-      hashResultEl.textContent  = '✓ Hash verified — payload intact';
+      hashResultEl.textContent  = 'Hash verified — payload intact';
       hashResultEl.className    = 'hash-result hash-ok';
     } else if (hashVerified === false) {
-      hashResultEl.textContent  = '✗ Hash MISMATCH — payload corrupted!';
+      hashResultEl.textContent  = 'Hash MISMATCH — payload corrupted!';
       hashResultEl.className    = 'hash-result hash-fail';
     } else if (obj.success) {
       hashResultEl.textContent  = 'Hash not verified (paste expectedHash above to verify)';
@@ -656,8 +1004,17 @@
     }).catch(() => {});
   }
 
-  function resetState() {
-    scanning       = false;
+  function updateBatchProgress() {
+    if (batchRunCount === 0 && allBatchResults.length === 0) {
+      batchProgressEl.textContent = 'No batch active';
+      return;
+    }
+    batchProgressEl.textContent =
+      `Run ${batchRunCount} completed — ${batchSuccessCount} success, ${batchFailCount} failed — ` +
+      (scanning ? 'waiting for next run…' : 'idle');
+  }
+
+  function resetRunState() {
     decoder        = null;
     detectedRunId  = null;
     seenSeqNums    = new Set();
@@ -668,13 +1025,19 @@
     scanSuccesses  = 0;
     dedupDrops     = 0;
     uniquePackets  = 0;
+    enqueueAttempts = 0;
+    enqueueAccepts  = 0;
+    enqueueRejects  = 0;
     lastReceivedBlocks = 0;
     lastTotalBlocks    = 0;
     blockTimeline  = [];
     packetTimeline = [];
+    lastPacketReceivedTime = null;
+
+    initDecoder();
   }
 
-  function resetUI() {
+  function resetRunUI() {
     runIdBox.textContent       = 'Run: —';
     stScanAttempts.textContent = '0';
     stScanSuccesses.textContent = '0';
@@ -685,11 +1048,25 @@
     stBlocks.textContent       = '0';
     stBlocksTotal.textContent  = '?';
     stElapsed.textContent      = '0s';
+    stEnqueueAccepts.textContent = '0';
+    stEnqueueRejects.textContent = '0';
+    stScansPerSec.textContent    = '—';
     progressFill.style.width   = '0%';
     blockTimelineEl.innerHTML  = '';
     resultSection.classList.remove('show');
     resultJsonEl.value         = '';
     hideError();
+  }
+
+  function resetAllState() {
+    resetRunState();
+    allBatchResults = [];
+    batchRunCount   = 0;
+    batchSuccessCount = 0;
+    batchFailCount    = 0;
+    previousRunId     = null;
+    exportAllBtn.disabled = true;
+    updateBatchProgress();
   }
 
   function initDecoder() {
@@ -706,14 +1083,18 @@
     try {
       stopUITimer();
       stopZXing();
+      stopJsQR();
       stopCamera();
+      clearRunTimeout();
+      clearIdleTimeout();
       if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
-      resetState();
-      resetUI();
+      resetRunState();
+      resetRunUI();
 
       scanning = true;
       initDecoder();
-      buildZXingReader();
+
+      const decoderLib = decoderLibSelect.value;
 
       cameraStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -731,10 +1112,15 @@
       });
       await video.play();
 
-      zxingControls = await zxingReader.decodeFromVideoDevice(
-        null, video,
-        (result, err) => onZXingCallback(result, err)
-      );
+      if (decoderLib === 'zxing') {
+        buildZXingReader();
+        zxingControls = await zxingReader.decodeFromVideoDevice(
+          null, video,
+          (result, err) => onZXingCallback(result, err)
+        );
+      } else if (decoderLib === 'jsqr') {
+        startJsQRLoop();
+      }
     } catch (err) {
       scanning = false;
       if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
@@ -747,14 +1133,18 @@
     try {
       stopUITimer();
       stopZXing();
+      stopJsQR();
       stopCamera();
+      clearRunTimeout();
+      clearIdleTimeout();
       if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
-      resetState();
-      resetUI();
+      resetRunState();
+      resetRunUI();
 
       scanning = true;
       initDecoder();
-      buildZXingReader();
+
+      const decoderLib = decoderLibSelect.value;
 
       const url = URL.createObjectURL(file);
       video.srcObject = null;
@@ -774,10 +1164,15 @@
         vc.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
       }
 
-      zxingControls = await zxingReader.decodeFromVideoElement(
-        video,
-        (result, err) => onZXingCallback(result, err)
-      );
+      if (decoderLib === 'zxing') {
+        buildZXingReader();
+        zxingControls = await zxingReader.decodeFromVideoElement(
+          video,
+          (result, err) => onZXingCallback(result, err)
+        );
+      } else if (decoderLib === 'jsqr') {
+        startJsQRLoop();
+      }
     } catch (err) {
       scanning = false;
       if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
@@ -801,19 +1196,21 @@
 
     stopUITimer();
     stopZXing();
+    stopJsQR();
     stopCamera();
+    clearRunTimeout();
+    clearIdleTimeout();
     if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
 
     if (wasRunning) {
-      // Export partial result before clearing state
       scanning = false;
       await exportPartialResult('user_reset');
     } else {
       scanning = false;
     }
 
-    resetState();
-    resetUI();
+    resetRunState();
+    resetRunUI();
   });
 
   copyResultBtn.addEventListener('click', async () => {
@@ -827,15 +1224,50 @@
     }
   });
 
+  // Export all batch results
+  exportAllBtn.addEventListener('click', async () => {
+    if (allBatchResults.length === 0) return;
+    const jsonStr = JSON.stringify(allBatchResults, null, 2);
+    try {
+      await navigator.clipboard.writeText(jsonStr);
+      exportAllBtn.textContent = 'Copied all results!';
+      setTimeout(() => exportAllBtn.textContent = 'Export All Results (JSON)', 3000);
+    } catch (_) {
+      // Fallback: show in result textarea
+      resultJsonEl.value = jsonStr;
+      resultSection.classList.add('show');
+    }
+  });
+
   formatSelect.addEventListener('change', () => {
-    // Format change mid-scan resets — must rebuild ZXing reader
     if (scanning) {
       stopUITimer();
       stopZXing();
+      stopJsQR();
       stopCamera();
+      clearRunTimeout();
+      clearIdleTimeout();
       if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
-      resetState();
-      resetUI();
+      resetRunState();
+      resetRunUI();
+    }
+  });
+
+  decoderLibSelect.addEventListener('change', () => {
+    if (decoderLibSelect.value === 'jsqr') {
+      // jsQR only supports QR codes
+      formatSelect.value = 'QR_CODE';
+    }
+    if (scanning) {
+      stopUITimer();
+      stopZXing();
+      stopJsQR();
+      stopCamera();
+      clearRunTimeout();
+      clearIdleTimeout();
+      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
+      resetRunState();
+      resetRunUI();
     }
   });
 
@@ -844,7 +1276,8 @@
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 
-  resetUI();
+  resetRunUI();
+  updateBatchProgress();
 })();
 </script>
 </body>
