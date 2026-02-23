@@ -235,6 +235,9 @@
     <div class="row">
       <textarea id="batch-paste" placeholder="Or paste a JSON array of test configs here..." style="height:80px"></textarea>
     </div>
+    <div class="row" id="url-load-row" style="display:none">
+      <span class="hint" id="url-load-hint"></span>
+    </div>
     <div id="batch-status"></div>
     <div id="batch-countdown"></div>
   </div>
@@ -1036,6 +1039,49 @@
   updateBarcodeUI();
   applyMatSettings();
   setButtons(false, false);
+
+  // === URL param auto-load: ?batch=filename.json[&autorun] ===
+  (async () => {
+    const params   = new URLSearchParams(window.location.search);
+    const batchUrl = params.get('batch');
+    if (!batchUrl) return;
+
+    const elUrlRow  = document.getElementById('url-load-row');
+    const elUrlHint = document.getElementById('url-load-hint');
+    elUrlRow.style.display = '';
+    elUrlHint.textContent  = `⏳ Loading batch config: ${batchUrl}…`;
+
+    // Resolve relative to current page location
+    let resolvedUrl;
+    try {
+      resolvedUrl = new URL(batchUrl, window.location.href).href;
+    } catch (_) {
+      elUrlHint.textContent = `❌ Invalid URL: ${batchUrl}`;
+      return;
+    }
+
+    let configs;
+    try {
+      const res = await fetch(resolvedUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const text = await res.text();
+      configs = parseBatchConfigs(text);
+      elBatchPaste.value = text;
+    } catch (e) {
+      elUrlHint.textContent = `❌ Failed to load "${batchUrl}": ${e.message}`;
+      return;
+    }
+
+    const autorun = params.has('autorun');
+    elUrlHint.innerHTML = `✅ Loaded <strong>${configs.length} run(s)</strong> from <code>${batchUrl}</code>${autorun ? ' — autorun starting…' : ' — click <strong>Load Batch Config</strong> to start.'}`;
+
+    if (autorun) {
+      // Small delay so the page renders the status message first
+      await new Promise(ok => setTimeout(ok, 600));
+      clearError();
+      runBatch(configs);
+    }
+  })();
 })();
 </script>
 </body>
