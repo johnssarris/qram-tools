@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Capabilities Debug</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: #eee; }
+    button { display: block; width: 100%; padding: 16px; margin-bottom: 12px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; }
+    #run { background: #0af; color: #000; }
+    #copy { background: #444; color: #eee; }
+    #status { font-size: 14px; color: #aaa; margin-bottom: 12px; min-height: 20px; }
+    #output { white-space: pre; font-family: monospace; font-size: 13px; background: #222; padding: 16px; border-radius: 8px; overflow-x: auto; min-height: 60px; }
+    h2 { font-size: 15px; color: #0af; margin: 0 0 4px 0; }
+    .section { margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <button id="run">Run All Checks</button>
+  <div id="status"></div>
+  <div id="output">Results will appear here...</div>
+  <br>
+  <button id="copy">Copy to Clipboard</button>
+
+  <script>
+    const status = document.getElementById('status');
+    const output = document.getElementById('output');
+
+    async function runChecks() {
+      status.textContent = 'Running...';
+      const results = {};
+
+      // --- Device info ---
+      results.device = {
+        userAgent: navigator.userAgent,
+        deviceMemory: navigator.deviceMemory ?? 'not supported',
+        hardwareConcurrency: navigator.hardwareConcurrency ?? 'not supported',
+        platform: navigator.platform,
+        maxTouchPoints: navigator.maxTouchPoints
+      };
+
+      // --- API availability ---
+      results.apiSupport = {
+        BarcodeDetector: 'BarcodeDetector' in window,
+        requestVideoFrameCallback: 'requestVideoFrameCallback' in HTMLVideoElement.prototype,
+        OffscreenCanvas: 'OffscreenCanvas' in window,
+        ImageCapture: 'ImageCapture' in window,
+        clipboardAPI: !!navigator.clipboard,
+        mediaDevices: !!navigator.mediaDevices,
+        serviceWorker: 'serviceWorker' in navigator,
+        WebAssembly: typeof WebAssembly === 'object',
+        SharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined',
+        WebWorker: typeof Worker !== 'undefined'
+      };
+
+      // --- BarcodeDetector formats ---
+      if ('BarcodeDetector' in window) {
+        try {
+          results.barcodeDetectorFormats = await BarcodeDetector.getSupportedFormats();
+        } catch (e) {
+          results.barcodeDetectorFormats = 'error: ' + e.message;
+        }
+      } else {
+        results.barcodeDetectorFormats = 'BarcodeDetector not available';
+      }
+
+      // --- Camera capabilities ---
+      status.textContent = 'Requesting camera access...';
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const track = stream.getVideoTracks()[0];
+
+        results.camera = {
+          settings: track.getSettings(),
+          capabilities: track.getCapabilities(),
+          constraints: track.getConstraints()
+        };
+
+        // Try applying manual white balance
+        try {
+          await track.applyConstraints({ advanced: [{ whiteBalanceMode: 'manual' }] });
+          results.camera.manualWhiteBalanceSupported = true;
+          // revert
+          await track.applyConstraints({ advanced: [{ whiteBalanceMode: 'continuous' }] });
+        } catch (e) {
+          results.camera.manualWhiteBalanceSupported = false;
+        }
+
+        stream.getTracks().forEach(t => t.stop());
+      } catch (e) {
+        results.camera = 'error: ' + e.message;
+      }
+
+      // --- All media devices ---
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        results.mediaDevices = devices.map(d => ({
+          kind: d.kind,
+          label: d.label || '(no label — grant camera permission first)',
+          deviceId: d.deviceId.substring(0, 8) + '...'
+        }));
+      } catch (e) {
+        results.mediaDevices = 'error: ' + e.message;
+      }
+
+      output.textContent = JSON.stringify(results, null, 2);
+      status.textContent = 'Done.';
+    }
+
+    document.getElementById('run').addEventListener('click', () => {
+      runChecks().catch(err => {
+        output.textContent = 'Unexpected error: ' + err.message;
+        status.textContent = 'Failed.';
+      });
+    });
+
+    document.getElementById('copy').addEventListener('click', () => {
+      const text = output.textContent;
+      navigator.clipboard.writeText(text)
+        .then(() => {
+          document.getElementById('copy').textContent = 'Copied!';
+          setTimeout(() => { document.getElementById('copy').textContent = 'Copy to Clipboard'; }, 2000);
+        })
+        .catch(() => {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+          document.getElementById('copy').textContent = 'Copied!';
+          setTimeout(() => { document.getElementById('copy').textContent = 'Copy to Clipboard'; }, 2000);
+        });
+    });
+  </script>
+</body>
+</html>
