@@ -1243,8 +1243,8 @@ function buildZXingReader() {
 
       if (decoderLib === 'zxing') {
         buildZXingReader();
-        zxingControls = await zxingReader.decodeFromVideoDevice(
-          null, video,
+        zxingControls = await zxingReader.decodeFromVideoElement(
+          video,
           (result, err) => onZXingCallback(result, err)
         );
       } else if (decoderLib === 'jsqr') {
