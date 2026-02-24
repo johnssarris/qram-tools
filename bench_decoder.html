@@ -699,25 +699,33 @@
     video.src = '';
   }
 
-  function buildZXingReader() {
+function buildZXingReader() {
     if (!window.ZXingBrowser) throw new Error('ZXingBrowser not loaded');
+    
+    // DecodeHintType is NOT exported by @zxing/browser, so use numeric keys:
+    // POSSIBLE_FORMATS = 2, TRY_HARDER = 3
+    const POSSIBLE_FORMATS = 2;
+    const TRY_HARDER = 3;
+    
     const hints = new Map();
-    if (ZXingBrowser.DecodeHintType && ZXingBrowser.BarcodeFormat) {
-      const fmt = formatSelect.value;
-      const map = {
+    const fmt = formatSelect.value;
+    const map = {
         AZTEC:       ZXingBrowser.BarcodeFormat.AZTEC,
         DATA_MATRIX: ZXingBrowser.BarcodeFormat.DATA_MATRIX,
         QR_CODE:     ZXingBrowser.BarcodeFormat.QR_CODE,
         PDF_417:     ZXingBrowser.BarcodeFormat.PDF_417,
-      };
-      if (fmt !== 'AUTO') hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [map[fmt]]);
-      if (document.getElementById('try-harder-cb').checked) {
-        hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
-      }
+    };
+    
+    if (fmt !== 'AUTO' && map[fmt] != null) {  // != null handles AZTEC being 0
+        hints.set(POSSIBLE_FORMATS, [map[fmt]]);
     }
+    if (document.getElementById('try-harder-cb').checked) {
+        hints.set(TRY_HARDER, true);
+    }
+    
     const interval = parseInt(scanIntervalSel.value, 10) || 80;
     zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, interval);
-  }
+}
 
   // === Scan callback (shared by ZXing and jsQR) ===
   async function onScanResult(rawTextOrBytes) {
