@@ -1149,14 +1149,22 @@
       initDecoder();
 
       const decoderLib = decoderLibSelect.value;
-
+      
       cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', frameRate: { ideal: 60 }, height: { ideal: 720 } },
+        audio: false,
+        video: {
+          facingMode: 'environment',
+          frameRate: { ideal: 30 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          resizeMode: 'none'
+        }
       });
+      
       video.srcObject = cameraStream;
       video.playsInline = true;
       video.muted = true;
-
+      
       await new Promise((resolve, reject) => {
         if (video.readyState >= 1) resolve();
         else {
