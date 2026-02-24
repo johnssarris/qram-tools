@@ -1206,8 +1206,8 @@ function buildZXingReader() {
         : { facingMode: 'environment' };
 
       Object.assign(videoConstraints, {
-        width:          { ideal: 1280 },
         height:         { ideal: 720 },
+        aspectRatio:    { ideal: 1 },
         frameRate:      { ideal: 60 },
         powerEfficient: false,
       });
