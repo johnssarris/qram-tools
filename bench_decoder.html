@@ -667,7 +667,11 @@
     resetRunUI();
     updateBatchProgress();
     startUITimer();
-  }
+    // Restart jsQR loop if that's the active decoder (ZXing manages its own loop)
+    if (decoderLibSelect.value === 'jsqr') {
+      startJsQRLoop();
+    }    
+  }   
 
   // === ZXing ===
   function stopZXing() {
@@ -750,7 +754,10 @@ function buildZXingReader() {
         clearIdleTimeout();
         await exportPartialResult('run_id_changed');
         scanning = prevScanning;
-      }
+        // Restart jsQR loop since setting scanning=false killed it
+        if (scanning && decoderLibSelect.value === 'jsqr') {
+          startJsQRLoop();
+        }
       // Reset for new run
       previousRunId = detectedRunId;
       resetRunState();
