@@ -759,6 +759,7 @@ function buildZXingReader() {
         if (scanning && decoderLibSelect.value === 'jsqr') {
           startJsQRLoop();
         }
+      }
       // Reset for new run
       previousRunId = detectedRunId;
       resetRunState();
@@ -1145,7 +1146,7 @@ function buildZXingReader() {
     packetTimeline = [];
     lastPacketReceivedTime = null;
 
-    initDecoder();
+    // initDecoder();
   }
 
   function resetRunUI() {
