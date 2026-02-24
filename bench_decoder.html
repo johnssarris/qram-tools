@@ -166,13 +166,23 @@
           <option value="QR_CODE">QR Code</option>
           <option value="PDF_417">PDF417</option>
         </select>
-        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Scan</label>
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Scan <span style="color:#666;font-weight:400;font-size:.75rem;">(ZXing only)</span></label>
         <select id="scan-interval">
           <option value="250">250ms</option>
           <option value="120">120ms</option>
           <option value="80" selected>80ms</option>
           <option value="50">50ms</option>
         </select>
+        <label style="color:#bbb;font-size:.85rem;">
+          <input type="checkbox" id="try-harder-cb"> Try Harder
+        </label>
+      </div>
+      <div class="row" id="camera-select-row">
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Camera</label>
+        <select id="camera-device-select" style="flex:1;">
+          <option value="">Default (environment)</option>
+        </select>
+        <button id="refresh-cameras-btn" class="btn-secondary" style="padding:8px 10px;font-size:.8rem;">↻</button>
       </div>
       <div class="row">
         <label style="color:#bbb;font-size:.85rem;font-weight:700;">Encoding</label>
@@ -352,10 +362,35 @@
   const envBrightnessEl = document.getElementById('env-brightness');
   const envNotesEl      = document.getElementById('env-notes');
 
+  const cameraDeviceSelect  = document.getElementById('camera-device-select');
+  const refreshCamerasBtn   = document.getElementById('refresh-cameras-btn');
+
   const encoderConfigInput = document.getElementById('encoder-config-input');
   const batchProgressEl    = document.getElementById('batch-progress');
   const exportAllBtn       = document.getElementById('export-all-btn');
   const downloadAllBtn     = document.getElementById('download-all-btn');
+
+  // === Camera device enumeration ===
+  async function populateCameraDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      // Preserve current selection
+      const currentVal = cameraDeviceSelect.value;
+      // Clear all options except the default
+      cameraDeviceSelect.innerHTML = '<option value="">Default (environment)</option>';
+      videoDevices.forEach((dev, idx) => {
+        const opt = document.createElement('option');
+        opt.value = dev.deviceId;
+        opt.textContent = dev.label || ('Camera ' + (idx + 1));
+        cameraDeviceSelect.appendChild(opt);
+      });
+      // Restore selection if still present
+      if (currentVal) {
+        cameraDeviceSelect.value = currentVal;
+      }
+    } catch (_) {}
+  }
 
   // === Device metadata cache (Task 6) ===
   let _deviceMeta = null;
@@ -422,8 +457,7 @@
   let zxingReader   = null;
   let cameraStream  = null;
 
-  // jsQR
-  let jsqrTimer = null;
+  // jsQR (no timer needed — uses requestVideoFrameCallback, self-terminates via scanning flag)
 
   // Timeouts
   let uiTimer = null;
@@ -645,7 +679,7 @@
 
   // === jsQR ===
   function stopJsQR() {
-    if (jsqrTimer) { clearInterval(jsqrTimer); jsqrTimer = null; }
+    // Loop self-terminates via the scanning flag check in scheduleJsQRFrame
   }
 
   function stopCamera() {
@@ -677,7 +711,9 @@
         PDF_417:     ZXingBrowser.BarcodeFormat.PDF_417,
       };
       if (fmt !== 'AUTO') hints.set(ZXingBrowser.DecodeHintType.POSSIBLE_FORMATS, [map[fmt]]);
-      hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+      if (document.getElementById('try-harder-cb').checked) {
+        hints.set(ZXingBrowser.DecodeHintType.TRY_HARDER, true);
+      }
     }
     const interval = parseInt(scanIntervalSel.value, 10) || 80;
     zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, interval);
@@ -811,33 +847,32 @@
     await onScanResult(rawText);
   }
 
-  // === jsQR scanning loop ===
+  // === jsQR scanning loop (uses requestVideoFrameCallback) ===
   function startJsQRLoop() {
     if (!window.jsQR) throw new Error('jsQR library not loaded');
-    const interval = parseInt(scanIntervalSel.value, 10) || 80;
     const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
 
-    jsqrTimer = setInterval(() => {
+    function scheduleJsQRFrame() {
       if (!scanning) return;
-      if (video.readyState < 2) return; // HAVE_CURRENT_DATA
-
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      if (!w || !h) return;
-
-      jsqrCanvas.width  = w;
-      jsqrCanvas.height = h;
-      ctx.drawImage(video, 0, 0, w, h);
-
-      scanAttempts++;
-
-      const imageData = ctx.getImageData(0, 0, w, h);
-      const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
-
-      if (code && code.data) {
-        onScanResult(code.data);
-      }
-    }, interval);
+      video.requestVideoFrameCallback(() => {
+        if (!scanning) return;
+        if (video.readyState < 2) { scheduleJsQRFrame(); return; }
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (!w || !h) { scheduleJsQRFrame(); return; }
+        jsqrCanvas.width  = w;
+        jsqrCanvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+        scanAttempts++;
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) {
+          onScanResult(code.data);
+        }
+        scheduleJsQRFrame();
+      });
+    }
+    scheduleJsQRFrame();
   }
 
   // === Completion ===
@@ -952,6 +987,13 @@
     const devMeta = await collectDeviceMeta();
     devMeta.cameraWidth  = video.videoWidth  || null;
     devMeta.cameraHeight = video.videoHeight || null;
+
+    // Capture negotiated camera track settings
+    const activeTrack = cameraStream && cameraStream.getVideoTracks()[0];
+    if (activeTrack) {
+      devMeta.cameraSettings = activeTrack.getSettings();
+      devMeta.cameraLabel    = activeTrack.label || null;
+    }
 
     const libInfo = getDecoderLibInfo();
     const encoderConfig = getEncoderConfigForRun(detectedRunId);
@@ -1150,21 +1192,35 @@
 
       const decoderLib = decoderLibSelect.value;
       
+      const selectedDeviceId = cameraDeviceSelect.value;
+      const videoConstraints = selectedDeviceId
+        ? { deviceId: { exact: selectedDeviceId } }
+        : { facingMode: 'environment' };
+
+      Object.assign(videoConstraints, {
+        width:          { ideal: 1280 },
+        height:         { ideal: 720 },
+        frameRate:      { ideal: 60 },
+        powerEfficient: false,
+      });
+
       cameraStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: {
-          facingMode: 'environment',
-          frameRate: { ideal: 30 },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          resizeMode: 'none'
-        }
+        video: videoConstraints,
       });
-      
+      video.muted = true;
+
+      // Lock white balance if supported
+      const track = cameraStream.getVideoTracks()[0];
+      try {
+        await track.applyConstraints({ advanced: [{ whiteBalanceMode: 'manual' }] });
+      } catch (_) {
+        // not supported on this device/browser — silently ignore
+      }
+
       video.srcObject = cameraStream;
       video.playsInline = true;
-      video.muted = true;
-      
+
       await new Promise((resolve, reject) => {
         if (video.readyState >= 1) resolve();
         else {
@@ -1173,6 +1229,9 @@
         }
       });
       await video.play();
+
+      // Re-populate camera list now that permission is granted (labels become available)
+      populateCameraDevices();
 
       if (decoderLib === 'zxing') {
         buildZXingReader();
@@ -1364,10 +1423,16 @@
     }
   });
 
+  // Camera device refresh button
+  refreshCamerasBtn.addEventListener('click', () => populateCameraDevices());
+
   // SW registration for PWA
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
+
+  // Populate camera devices on load
+  populateCameraDevices();
 
   resetRunUI();
   updateBatchProgress();
