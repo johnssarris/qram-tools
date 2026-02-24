@@ -503,7 +503,7 @@
     async function initCamera() {
       try {
         cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', frameRate: { ideal: 60 }, height: { ideal: 720 } },
+          video: { facingMode: 'environment', frameRate: { ideal: 30 }, height: { ideal: 1080 } },
         });
         video.srcObject = cameraStream;
         video.setAttribute('playsinline', true);
