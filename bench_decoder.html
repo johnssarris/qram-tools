@@ -763,6 +763,7 @@ function buildZXingReader() {
       // Reset for new run
       previousRunId = detectedRunId;
       resetRunState();
+      initDecoder();
       resetRunUI();
       updateBatchProgress();
     }
@@ -1145,7 +1146,6 @@ function buildZXingReader() {
     blockTimeline  = [];
     packetTimeline = [];
     lastPacketReceivedTime = null;
-
     // initDecoder();
   }
 
