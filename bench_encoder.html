@@ -556,6 +556,9 @@
     const delay     = 1000 / fps;
     const encoding  = config.packetEncoding || 'base64url';
     const timeoutMs = (config.timeoutSec || 120) * 1000;
+    // Deadline-based pacing: compensates for render time so actual FPS stays
+    // close to the configured value instead of drifting with setTimeout.
+    let nextFrameAt = performance.now();
 
     let enc;
     try { enc = new qram.Encoder({ data: payload, blockSize }); }
@@ -614,7 +617,9 @@
         const canvasStr = cs ? ` | canvas ${cs.width}×${cs.height}px` : '';
         elStats.textContent = `Streaming — run ${runIdHex} | pkt #${seqNum} | ${formatBytes(payloadSz)} | ${blocks} blocks${canvasStr}`;
 
-        await new Promise(ok => setTimeout(ok, delay));
+        nextFrameAt += delay;
+        const wait = nextFrameAt - performance.now();
+        if (wait > 0) await new Promise(ok => setTimeout(ok, wait));
       }
     } catch (e) {
       if (!cancelRequested) showError('Streaming loop error', e);
