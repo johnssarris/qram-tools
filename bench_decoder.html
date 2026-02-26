@@ -12,7 +12,7 @@
 
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
-  <script src="./libs/zxing-browser.min.js"></script>
+  <script src="./libs/zxing-wasm.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -155,23 +155,8 @@
       <div class="row">
         <label style="color:#bbb;font-size:.85rem;font-weight:700;">Decoder</label>
         <select id="decoder-lib-select">
-          <option value="zxing" selected>ZXing</option>
-          <option value="jsqr">jsQR (QR only)</option>
-        </select>
-        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Format</label>
-        <select id="format-select">
-          <option value="AUTO" selected>Auto</option>
-          <option value="AZTEC">Aztec</option>
-          <option value="DATA_MATRIX">Data Matrix</option>
-          <option value="QR_CODE">QR Code</option>
-          <option value="PDF_417">PDF417</option>
-        </select>
-        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Scan <span style="color:#666;font-weight:400;font-size:.75rem;">(ZXing only)</span></label>
-        <select id="scan-interval">
-          <option value="250">250ms</option>
-          <option value="120">120ms</option>
-          <option value="80" selected>80ms</option>
-          <option value="50">50ms</option>
+          <option value="zxing-wasm" selected>zxing-wasm (QR)</option>
+          <option value="jsqr">jsQR (QR)</option>
         </select>
         <label style="color:#bbb;font-size:.85rem;">
           <input type="checkbox" id="try-harder-cb"> Try Harder
@@ -350,8 +335,6 @@
   const videoFileBtn    = document.getElementById('video-file-btn');
   const videoFileInput  = document.getElementById('video-file-input');
   const resetBtn        = document.getElementById('reset-btn');
-  const formatSelect    = document.getElementById('format-select');
-  const scanIntervalSel = document.getElementById('scan-interval');
   const decoderLibSelect = document.getElementById('decoder-lib-select');
   const packetEncSelect  = document.getElementById('packet-encoding-select');
   const runTimeoutEl     = document.getElementById('run-timeout');
@@ -452,9 +435,7 @@
   let blockTimeline  = [];
   let packetTimeline = [];
 
-  // ZXing
-  let zxingControls = null;
-  let zxingReader   = null;
+  // zxing-wasm loop (uses same rVFC pattern as jsQR — terminates via scanning flag)
   let cameraStream  = null;
 
   // jsQR (no timer needed — uses requestVideoFrameCallback, self-terminates via scanning flag)
@@ -552,13 +533,9 @@
 
   function getDecoderLibInfo() {
     const lib = decoderLibSelect.value;
-    if (lib === 'zxing') {
-      if (window.ZXingBrowser) {
-        // Try to get version
-        const ver = ZXingBrowser.version || ZXingBrowser.VERSION || '0.1.5';
-        return { name: 'ZXing', version: 'ZXing @' + ver };
-      }
-      return { name: 'ZXing', version: 'ZXing @0.1.5' };
+    if (lib === 'zxing-wasm') {
+      const ver = (window.ZXingWASM && ZXingWASM.ZXING_WASM_VERSION) || '3.x';
+      return { name: 'zxing-wasm', version: 'zxing-wasm@' + ver };
     }
     if (lib === 'jsqr') {
       return { name: 'jsQR', version: 'jsQR (bundled)' };
@@ -668,18 +645,18 @@
     initDecoder();
     updateBatchProgress();
     startUITimer();
-    // Restart jsQR loop if that's the active decoder (ZXing manages its own loop)
-    if (decoderLibSelect.value === 'jsqr') {
+    // Restart the scan loop (both zxing-wasm and jsQR use rVFC-based loops
+    // that self-terminate via the scanning flag, so we restart here)
+    if (decoderLibSelect.value === 'zxing-wasm') {
+      startZXingWasmLoop();
+    } else if (decoderLibSelect.value === 'jsqr') {
       startJsQRLoop();
-    }    
-  }   
+    }
+  }
 
-  // === ZXing ===
+  // === zxing-wasm (loop terminates via scanning flag, same as jsQR) ===
   function stopZXing() {
-    try { if (zxingControls?.stop) zxingControls.stop(); } catch (_) {}
-    zxingControls = null;
-    try { if (zxingReader?.reset) zxingReader.reset(); } catch (_) {}
-    zxingReader = null;
+    // Loop self-terminates via the scanning flag check in scheduleZXingWasmFrame
   }
 
   // === jsQR ===
@@ -704,33 +681,44 @@
     video.src = '';
   }
 
-function buildZXingReader() {
-    if (!window.ZXingBrowser) throw new Error('ZXingBrowser not loaded');
-    
-    // DecodeHintType is NOT exported by @zxing/browser, so use numeric keys:
-    // POSSIBLE_FORMATS = 2, TRY_HARDER = 3
-    const POSSIBLE_FORMATS = 2;
-    const TRY_HARDER = 3;
-    
-    const hints = new Map();
-    const fmt = formatSelect.value;
-    const map = {
-        AZTEC:       ZXingBrowser.BarcodeFormat.AZTEC,
-        DATA_MATRIX: ZXingBrowser.BarcodeFormat.DATA_MATRIX,
-        QR_CODE:     ZXingBrowser.BarcodeFormat.QR_CODE,
-        PDF_417:     ZXingBrowser.BarcodeFormat.PDF_417,
-    };
-    
-    if (fmt !== 'AUTO' && map[fmt] != null) {  // != null handles AZTEC being 0
-        hints.set(POSSIBLE_FORMATS, [map[fmt]]);
+  // === zxing-wasm scan loop (rVFC-based, QR-only) ===
+  function startZXingWasmLoop() {
+    if (!window.ZXingWASM) throw new Error('zxing-wasm not loaded');
+    const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
+    const tryHarder = document.getElementById('try-harder-cb').checked;
+
+    async function scheduleZXingWasmFrame() {
+      if (!scanning) return;
+      video.requestVideoFrameCallback(async () => {
+        if (!scanning) return;
+        if (video.readyState < 2) { scheduleZXingWasmFrame(); return; }
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        if (!w || !h) { scheduleZXingWasmFrame(); return; }
+        jsqrCanvas.width  = w;
+        jsqrCanvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+        scanAttempts++;
+        const imageData = ctx.getImageData(0, 0, w, h);
+        try {
+          const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
+            formats: ['QRCode'],
+            tryHarder,
+          });
+          for (const r of results) {
+            const encoding = packetEncSelect.value;
+            if (encoding === 'binary' && r.bytes && r.bytes.length > 0) {
+              await onScanResult(r.bytes);
+            } else if (r.text) {
+              await onScanResult(r.text);
+            }
+          }
+        } catch (_) {}
+        scheduleZXingWasmFrame();
+      });
     }
-    if (document.getElementById('try-harder-cb').checked) {
-        hints.set(TRY_HARDER, true);
-    }
-    
-    const interval = parseInt(scanIntervalSel.value, 10) || 80;
-    zxingReader = new ZXingBrowser.BrowserMultiFormatReader(hints, interval);
-}
+    scheduleZXingWasmFrame();
+  }
 
   // === Scan callback (shared by ZXing and jsQR) ===
   async function onScanResult(rawTextOrBytes) {
@@ -755,9 +743,10 @@ function buildZXingReader() {
         clearIdleTimeout();
         await exportPartialResult('run_id_changed');
         scanning = prevScanning;
-        // Restart jsQR loop since setting scanning=false killed it
-        if (scanning && decoderLibSelect.value === 'jsqr') {
-          startJsQRLoop();
+        // Restart scan loop since setting scanning=false killed it
+        if (scanning) {
+          if (decoderLibSelect.value === 'zxing-wasm') startZXingWasmLoop();
+          else if (decoderLibSelect.value === 'jsqr') startJsQRLoop();
         }
       }
       // Reset for new run
@@ -838,31 +827,6 @@ function buildZXingReader() {
     } catch (_) {
       enqueueRejects++;
     }
-  }
-
-  // === ZXing callback ===
-  async function onZXingCallback(result, err) {
-    if (!scanning) return;
-    scanAttempts++;
-
-    if (!result) return; // scan miss
-
-    const encoding = packetEncSelect.value;
-    if (encoding === 'binary') {
-      // Try getRawBytes first for binary mode
-      try {
-        const rawBytes = result.getRawBytes();
-        if (rawBytes && rawBytes.length > 0) {
-          await onScanResult(rawBytes);
-          return;
-        }
-      } catch (_) {}
-      // Fallback to text
-    }
-
-    const rawText = result.getText();
-    if (!rawText) return;
-    await onScanResult(rawText);
   }
 
   // === jsQR scanning loop (uses requestVideoFrameCallback) ===
@@ -1020,9 +984,8 @@ function buildZXingReader() {
       runId:              detectedRunId,
       timestamp:          new Date().toISOString(),
       decoderLib:         libInfo.version,
-      barcodeFormat:      formatSelect.value,
+      barcodeFormat:      'QR_CODE',
       packetEncoding:     packetEncSelect.value,
-      scanIntervalMs:     parseInt(scanIntervalSel.value, 10),
       success:            extras.success,
       failureReason:      extras.failureReason,
 
@@ -1250,12 +1213,8 @@ function buildZXingReader() {
       // Re-populate camera list now that permission is granted (labels become available)
       populateCameraDevices();
 
-      if (decoderLib === 'zxing') {
-        buildZXingReader();
-        zxingControls = await zxingReader.decodeFromVideoElement(
-          video,
-          (result, err) => onZXingCallback(result, err)
-        );
+      if (decoderLib === 'zxing-wasm') {
+        startZXingWasmLoop();
       } else if (decoderLib === 'jsqr') {
         startJsQRLoop();
       }
@@ -1302,12 +1261,8 @@ function buildZXingReader() {
         vc.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
       }
 
-      if (decoderLib === 'zxing') {
-        buildZXingReader();
-        zxingControls = await zxingReader.decodeFromVideoElement(
-          video,
-          (result, err) => onZXingCallback(result, err)
-        );
+      if (decoderLib === 'zxing-wasm') {
+        startZXingWasmLoop();
       } else if (decoderLib === 'jsqr') {
         startJsQRLoop();
       }
@@ -1408,25 +1363,7 @@ function buildZXingReader() {
     URL.revokeObjectURL(url);
   });
 
-  formatSelect.addEventListener('change', () => {
-    if (scanning) {
-      stopUITimer();
-      stopZXing();
-      stopJsQR();
-      stopCamera();
-      clearRunTimeout();
-      clearIdleTimeout();
-      if (decoder) { try { decoder.cancel?.(); } catch (_) {} }
-      resetRunState();
-      resetRunUI();
-    }
-  });
-
   decoderLibSelect.addEventListener('change', () => {
-    if (decoderLibSelect.value === 'jsqr') {
-      // jsQR only supports QR codes
-      formatSelect.value = 'QR_CODE';
-    }
     if (scanning) {
       stopUITimer();
       stopZXing();
