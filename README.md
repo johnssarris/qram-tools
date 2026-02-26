@@ -5,7 +5,11 @@ displaying animated barcodes on screen and scanning them with the
 phone's camera.
 
 Uses fountain codes (LT codes) so missed or duplicated frames don't
-matter --- the decoder only needs enough unique packets.
+matter — the decoder only needs enough unique packets.
+
+**Barcode format: QR Code only.** Benchmarking confirmed QR wins
+decisively over Aztec and Data Matrix on the target stack (iPhone 15 +
+Safari). All production and bench tooling is QR-only.
 
 ------------------------------------------------------------------------
 
@@ -27,9 +31,9 @@ matter --- the decoder only needs enough unique packets.
 
 ### Recommended Settings
 
--   Block size: 200--400 bytes\
--   FPS: 4--8\
--   Distance: \~15--30 cm\
+-   Block size: 200--400 bytes
+-   FPS: 4--8
+-   Distance: ~15--30 cm
 -   Good lighting helps
 
 ------------------------------------------------------------------------
@@ -45,27 +49,22 @@ Full documentation below.
 
 ------------------------------------------------------------------------
 
-```{=html}
 <details>
-```
-```{=html}
-<summary>
-```
-`<strong>`{=html}Full Benchmarking Documentation`</strong>`{=html}
-```{=html}
-</summary>
-```
+<summary><strong>Full Benchmarking Documentation</strong></summary>
+
 ## Files
 
 ### Production
 
--   `qram_encoder.html` --- PC encoder
--   `index.html` --- iPhone decoder PWA
+-   `qram_encoder.html` — PC encoder (QR via node-qrcode)
+-   `index.html` — iPhone decoder PWA (jsQR only)
 
 ### Benchmarking
 
--   `bench_encoder.html` --- configurable encoder + batch mode
--   `bench_decoder.html` --- multi-library decoder + detailed metrics
+-   `bench_encoder.html` — QR encoder + batch mode
+-   `bench_decoder.html` — A/B scanner decoder + detailed metrics
+-   `bench_encoder_v2.html` — alternative encoder UI
+-   `bench_decoder_v2.html` — alternative decoder UI
 
 ### PWA
 
@@ -74,51 +73,67 @@ Full documentation below.
 
 ### Libraries
 
--   `qram.min.js`
--   `qrcode.min.js`
--   `jsQR.js`
--   `bwip-js.js`
+-   `libs/qram.min.js` — fountain codec
+-   `libs/qrcode.min.js` — QR encoder (node-qrcode)
+-   `libs/jsQR.js` — QR decoder (production + bench scanner A)
+-   `libs/zxing-wasm.js` — QR decoder via ZXing WASM (bench scanner B)
 
 ------------------------------------------------------------------------
 
 ## Bench Encoder
 
-Configurable parameters: - Barcode type (Aztec, QR, Data Matrix,
-PDF417) - Encoder library - Packet encoding (base64url or binary) -
-Block size, FPS, EC level, scale - Payload size and timeout - Seeded
-PRNG for reproducibility - SHA-256 hash for integrity verification
+QR-only. Configurable parameters:
 
-Packet header format: - 4 bytes run ID - 4 bytes sequence number
+-   Packet encoding (base64url or binary)
+-   Block size, FPS, QR EC level (L/M/Q/H), scale
+-   Payload size and timeout
+-   Seeded PRNG for reproducibility
+-   SHA-256 hash for integrity verification
 
-Batch mode: - Auto-cycles through JSON-defined test configs - Uses run
-ID changes to signal decoder reset
+Packet header format: 4 bytes run ID + 4 bytes sequence number (BE)
+
+Batch mode:
+
+-   Auto-cycles through JSON-defined test configs
+-   Non-QR `barcodeType` values in batch configs are coerced to `"qrcode"`
+-   Uses run ID changes to signal decoder reset
 
 ------------------------------------------------------------------------
 
 ## Bench Decoder
 
-Captures: - Scan attempts and successes - Successful decodes per
-second - Dedup drops - Unique packets - Enqueue attempts / accepts /
-rejects - Blocks decoded / total - Overhead ratio - Time to first
-packet - Time to first block - Total decode time - Packet timeline -
-Block timeline - SHA-256 verification
+QR-only. Scanner options: **jsQR** or **zxing-wasm** (QR-only mode).
 
-Batch mode: - Auto-detects run ID change - Exports each run result -
-Idle timeout detection - Export all results JSON
+Captures:
+
+-   Scan attempts and successes
+-   Successful decodes per second
+-   Dedup drops
+-   Unique packets
+-   Enqueue attempts / accepts / rejects
+-   Blocks decoded / total
+-   Overhead ratio
+-   Time to first packet / first block / total decode
+-   Packet timeline and block timeline
+-   SHA-256 verification
+
+Batch mode:
+
+-   Auto-detects run ID change
+-   Exports each run result
+-   Idle timeout detection
+-   Export all results JSON
 
 ------------------------------------------------------------------------
 
 ## Diagnostic Heuristics
 
--   Low scans/sec → optical bottleneck\
--   High scans/sec but low unique packets → dedup/frame issue\
--   Unique packets grow but blocks flat → fountain accumulation or
-    corruption\
+-   Low scans/sec → optical bottleneck
+-   High scans/sec but low unique packets → dedup/frame issue
+-   Unique packets grow but blocks flat → fountain accumulation or corruption
 -   High enqueue rejects → format mismatch or corruption
 
-```{=html}
 </details>
-```
 
 ------------------------------------------------------------------------
 
