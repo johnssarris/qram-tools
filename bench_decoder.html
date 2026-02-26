@@ -170,6 +170,23 @@
         <button id="refresh-cameras-btn" class="btn-secondary" style="padding:8px 10px;font-size:.8rem;">↻</button>
       </div>
       <div class="row">
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">FPS</label>
+        <select id="cam-fps-select">
+          <option value="15">15 fps</option>
+          <option value="24">24 fps</option>
+          <option value="30" selected>30 fps</option>
+          <option value="60">60 fps</option>
+          <option value="120">120 fps</option>
+        </select>
+        <label style="color:#bbb;font-size:.85rem;font-weight:700;">Res</label>
+        <select id="cam-res-select">
+          <option value="640x480">480p (640×480)</option>
+          <option value="1280x720" selected>720p (1280×720)</option>
+          <option value="1920x1080">1080p (1920×1080)</option>
+          <option value="3840x2160">4K (3840×2160)</option>
+        </select>
+      </div>
+      <div class="row">
         <label style="color:#bbb;font-size:.85rem;font-weight:700;">Encoding</label>
         <select id="packet-encoding-select">
           <option value="base64url" selected>base64url</option>
@@ -347,6 +364,8 @@
 
   const cameraDeviceSelect  = document.getElementById('camera-device-select');
   const refreshCamerasBtn   = document.getElementById('refresh-cameras-btn');
+  const camFpsSelect        = document.getElementById('cam-fps-select');
+  const camResSelect        = document.getElementById('cam-res-select');
 
   const encoderConfigInput = document.getElementById('encoder-config-input');
   const batchProgressEl    = document.getElementById('batch-progress');
@@ -1177,10 +1196,12 @@
         ? { deviceId: { exact: selectedDeviceId } }
         : { facingMode: 'environment' };
 
+      const fps = parseInt(camFpsSelect.value, 10) || 30;
+      const [resW, resH] = camResSelect.value.split('x').map(Number);
       Object.assign(videoConstraints, {
-        height:         { ideal: 720 },
-        aspectRatio:    { ideal: 1 },
-        frameRate:      { ideal: 30 },
+        width:          { ideal: resW },
+        height:         { ideal: resH },
+        frameRate:      { ideal: fps },
         powerEfficient: false,
       });
 
