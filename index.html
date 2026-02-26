@@ -11,6 +11,7 @@
   <link rel="manifest" href="manifest.json">
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
+  <script src="./libs/qram-utils.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -367,11 +368,7 @@
     const FILE_MAGIC = [0x51, 0x52, 0x41, 0x4D, 0x46];
 
     // --- Helpers ---
-    function formatBytes(bytes) {
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    }
+    const { formatBytes, downloadBlob } = qramUtils;
 
     function formatSpeed(bytesPerSec) {
       if (bytesPerSec < 1024) return bytesPerSec.toFixed(0) + ' B/s';
@@ -709,45 +706,20 @@
     }
 
     // Copy to clipboard
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(resultEl.value);
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => {
-          copyBtn.textContent = 'Copy to Clipboard';
-        }, 2000);
-      } catch (err) {
-        resultEl.select();
-        document.execCommand('copy');
-        copyBtn.textContent = 'Copied!';
-        setTimeout(() => {
-          copyBtn.textContent = 'Copy to Clipboard';
-        }, 2000);
-      }
+    copyBtn.addEventListener('click', () => {
+      qramUtils.copyToClipboard(resultEl.value, copyBtn, 'Copy to Clipboard', 'Copied!', 2000);
     });
 
     // Download file (for file transfers)
     downloadBtn.addEventListener('click', () => {
       if (!decodedFileData) return;
       const mime = guessMimeType(decodedFileData.fileName);
-      const blob = new Blob([decodedFileData.fileData], { type: mime });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = decodedFileData.fileName;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(new Blob([decodedFileData.fileData], { type: mime }), decodedFileData.fileName);
     });
 
     // Save as file (for text transfers)
     saveBtn.addEventListener('click', () => {
-      const blob = new Blob([resultEl.value], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'qram-transfer.txt';
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(new Blob([resultEl.value], { type: 'text/plain' }), 'qram-transfer.txt');
     });
 
     // Reset

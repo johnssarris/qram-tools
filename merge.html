@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QRAM Merge Utility</title>
+  <script src="./libs/qram-utils.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -160,10 +161,7 @@
   });
 
   // === Helpers ===
-  function getTimestampStr() {
-    const d = new Date();
-    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-  }
+  const { getTimestampStr, downloadJson, copyToClipboard } = qramUtils;
 
   function showError(msg) {
     errorMsg.textContent = msg;
@@ -306,28 +304,12 @@
   downloadBtn.addEventListener('click', () => {
     const jsonStr = outputTextarea.value;
     if (!jsonStr) return;
-    const filename = `qram-merged-${getTimestampStr()}.json`;
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJson(jsonStr, `qram-merged-${getTimestampStr()}.json`);
   });
 
   // === Copy ===
-  copyBtn.addEventListener('click', async () => {
-    const jsonStr = outputTextarea.value;
-    if (!jsonStr) return;
-    try {
-      await navigator.clipboard.writeText(jsonStr);
-      copyBtn.textContent = 'Copied!';
-      setTimeout(() => copyBtn.textContent = 'Copy Merged JSON', 2500);
-    } catch (_) {
-      outputTextarea.select();
-      document.execCommand('copy');
-    }
+  copyBtn.addEventListener('click', () => {
+    copyToClipboard(outputTextarea.value, copyBtn, 'Copy Merged JSON');
   });
 })();
 </script>

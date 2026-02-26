@@ -6,6 +6,7 @@
   <title>QRAM Bench Encoder</title>
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/qrcode.min.js"></script>
+  <script src="./libs/qram-utils.js"></script>
   <style>
     body { font-family: system-ui; background: #1a1a2e; color: #eee; padding: 16px; max-width: 860px; margin: auto; }
     h2 { margin: 0 0 14px 0; color: #00d4ff; font-size: 1.2rem; }
@@ -310,10 +311,7 @@
     return { hex, bytes };
   }
 
-  async function sha256hex(data) {
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
-  }
+  const { sha256hex, formatBytes, getTimestampStr, copyToClipboard, downloadJson } = qramUtils;
 
   function bytesToBase64Url(u8) {
     let bin = '';
@@ -331,17 +329,6 @@
     out[7] = seq & 0xff;
     out.set(qramData, 8);
     return out;
-  }
-
-  function formatBytes(n) {
-    if (n < 1024) return n + ' B';
-    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
-    return (n / 1048576).toFixed(1) + ' MB';
-  }
-
-  function getTimestampStr() {
-    const d = new Date();
-    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
   }
 
   function collectScreenMetadata() {
@@ -670,16 +657,8 @@
   });
 
   // === Copy config ===
-  elCopyConfig.addEventListener('click', async () => {
-    const text = elConfigJson.value;
-    try {
-      await navigator.clipboard.writeText(text);
-      elCopyConfig.textContent = 'Copied!';
-      setTimeout(() => elCopyConfig.textContent = 'Copy Config JSON', 2500);
-    } catch (_) {
-      elConfigJson.select();
-      document.execCommand('copy');
-    }
+  elCopyConfig.addEventListener('click', () => {
+    copyToClipboard(elConfigJson.value, elCopyConfig, 'Copy Config JSON');
   });
 
   // === Download Config JSON (Task 3) ===
@@ -698,13 +677,7 @@
     } catch (_) {
       filename = 'qram-encoder-config.json';
     }
-    const blob = new Blob([text], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJson(text, filename);
   });
 
   // === Batch Mode ===

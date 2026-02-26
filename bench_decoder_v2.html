@@ -13,6 +13,7 @@
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
   <script src="./libs/zxing-wasm.js"></script>
+  <script src="./libs/qram-utils.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -397,10 +398,7 @@
   // === Device metadata cache (Task 6) ===
   let _deviceMeta = null;
 
-  function getTimestampStr() {
-    const d = new Date();
-    return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}-${String(d.getHours()).padStart(2,'0')}${String(d.getMinutes()).padStart(2,'0')}${String(d.getSeconds()).padStart(2,'0')}`;
-  }
+  const { getTimestampStr, sha256hex, copyToClipboard, downloadJson } = qramUtils;
 
   async function collectDeviceMeta() {
     const meta = {
@@ -499,11 +497,6 @@
     const out = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
     return out;
-  }
-
-  async function sha256hex(data) {
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
   }
 
   // Parse a bench-encoded barcode.
@@ -1360,44 +1353,29 @@
     resetRunUI();
   });
 
-  copyResultBtn.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(resultJsonEl.value);
-      copyResultBtn.textContent = 'Copied!';
-      setTimeout(() => copyResultBtn.textContent = 'Copy Result JSON', 2500);
-    } catch (_) {
-      resultJsonEl.select();
-      document.execCommand('copy');
-    }
+  copyResultBtn.addEventListener('click', () => {
+    copyToClipboard(resultJsonEl.value, copyResultBtn, 'Copy Result JSON');
   });
 
   // Export all batch results (copy)
-  exportAllBtn.addEventListener('click', async () => {
+  exportAllBtn.addEventListener('click', () => {
     if (allBatchResults.length === 0) return;
-    const jsonStr = JSON.stringify(allBatchResults, null, 2);
-    try {
-      await navigator.clipboard.writeText(jsonStr);
-      exportAllBtn.textContent = 'Copied all results!';
-      setTimeout(() => exportAllBtn.textContent = 'Export All Results (JSON)', 3000);
-    } catch (_) {
-      // Fallback: show in result textarea
-      resultJsonEl.value = jsonStr;
-      resultSection.classList.add('show');
-    }
+    copyToClipboard(
+      JSON.stringify(allBatchResults, null, 2),
+      exportAllBtn,
+      'Export All Results (JSON)',
+      'Copied all results!',
+      3000
+    );
   });
 
   // Download all results as file (Task 5)
   downloadAllBtn.addEventListener('click', () => {
     if (allBatchResults.length === 0) return;
-    const jsonStr = JSON.stringify(allBatchResults, null, 2);
-    const filename = `qram-decoder-results-${getTimestampStr()}.json`;
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJson(
+      JSON.stringify(allBatchResults, null, 2),
+      `qram-decoder-results-${getTimestampStr()}.json`
+    );
   });
 
   // Download current (last shown) result as file (Task 5)
@@ -1408,13 +1386,7 @@
     try { runId = JSON.parse(jsonStr).runId; } catch (_) {}
     const ts       = getTimestampStr();
     const filename = runId ? `qram-decoder-${runId}-${ts}.json` : `qram-decoder-result-${ts}.json`;
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadJson(jsonStr, filename);
   });
 
   decoderLibSelect.addEventListener('change', () => {
