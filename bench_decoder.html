@@ -180,10 +180,10 @@
         </select>
         <label style="color:#bbb;font-size:.85rem;font-weight:700;">Res</label>
         <select id="cam-res-select">
-          <option value="640x480">480p (640×480)</option>
-          <option value="1280x720" selected>720p (1280×720)</option>
-          <option value="1920x1080">1080p (1920×1080)</option>
-          <option value="3840x2160">4K (3840×2160)</option>
+          <option value="480">480</option>
+          <option value="720" selected>720</option>
+          <option value="1080">1080</option>
+          <option value="2160">2160</option>
         </select>
       </div>
       <div class="row">
@@ -1197,10 +1197,10 @@
         : { facingMode: 'environment' };
 
       const fps = parseInt(camFpsSelect.value, 10) || 30;
-      const [resW, resH] = camResSelect.value.split('x').map(Number);
+      const resH = parseInt(camResSelect.value, 10) || 720;
       Object.assign(videoConstraints, {
-        width:          { ideal: resW },
         height:         { ideal: resH },
+        aspectRatio:    { ideal: 1 },
         frameRate:      { ideal: fps },
         powerEfficient: false,
       });
