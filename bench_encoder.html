@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>QRAM Bench Encoder</title>
   <script src="./libs/qram.min.js"></script>
-  <script src="./libs/bwip-js-min.js"></script>
   <script src="./libs/qrcode.min.js"></script>
   <style>
     body { font-family: system-ui; background: #1a1a2e; color: #eee; padding: 16px; max-width: 860px; margin: auto; }
@@ -100,25 +99,11 @@
     <h3>Run Config</h3>
 
     <div class="row">
-      <label>Label: <input type="text" id="label" placeholder="e.g. aztec-baseline-1" class="wide"></label>
+      <label>Label: <input type="text" id="label" placeholder="e.g. qr-block120-fps12" class="wide"></label>
       <label>Payload: <input type="number" id="payload-size" value="500" min="10" max="100000"> bytes</label>
     </div>
 
     <div class="row">
-      <label>Barcode:
-        <select id="bcid">
-          <option value="azteccode" selected>Aztec</option>
-          <option value="datamatrix">Data Matrix</option>
-          <option value="qrcode">QR Code</option>
-          <option value="pdf417">PDF417</option>
-        </select>
-      </label>
-      <label>Encoder lib:
-        <select id="enc-lib">
-          <option value="bwip-js" selected>bwip-js</option>
-          <option value="qrcode.min.js">qrcode.min.js (QR only)</option>
-        </select>
-      </label>
       <label>Block: <input type="number" id="blk" value="120" min="50" max="2000"></label>
       <label>FPS: <input type="number" id="fps" value="12" min="1" max="60"></label>
     </div>
@@ -133,22 +118,8 @@
       <label>Timeout: <input type="number" id="run-timeout" value="120" min="10" max="3600"> sec</label>
     </div>
 
-    <!-- Aztec options -->
-    <div class="row" id="aztec-opts">
-      <label>Aztec EC%: <input type="number" id="eclevel" value="33" min="0" max="99"></label>
-      <label>Scale: <input type="number" id="scale" value="2" min="1" max="20"></label>
-      <label>Format:
-        <select id="format">
-          <option value="" selected>Auto</option>
-          <option value="full">Full</option>
-          <option value="compact">Compact</option>
-        </select>
-      </label>
-      <label>Layers: <input type="number" id="layers" value="0" min="0" max="32" title="0=auto"></label>
-    </div>
-
     <!-- QR options -->
-    <div class="row" id="qr-opts" style="display:none">
+    <div class="row">
       <label>QR EC:
         <select id="qrec">
           <option value="L">L</option>
@@ -158,18 +129,6 @@
         </select>
       </label>
       <label>Scale: <input type="number" id="qrscale" value="2" min="1" max="20"></label>
-    </div>
-
-    <!-- Data Matrix options -->
-    <div class="row" id="dm-opts" style="display:none">
-      <label>Scale: <input type="number" id="dmscale" value="2" min="1" max="20"></label>
-    </div>
-
-    <!-- PDF417 options -->
-    <div class="row" id="pdf-opts" style="display:none">
-      <label>Scale: <input type="number" id="pdfscale" value="2" min="1" max="10"></label>
-      <label>Cols: <input type="number" id="pdfcols" value="0" min="0" max="30" title="0=auto"></label>
-      <label>Rows: <input type="number" id="pdfrows" value="0" min="0" max="90" title="0=auto"></label>
     </div>
 
     <!-- Mat -->
@@ -286,23 +245,13 @@
   // === Elements ===
   const elLabel       = document.getElementById('label');
   const elPayloadSize = document.getElementById('payload-size');
-  const elBcid        = document.getElementById('bcid');
-  const elEncLib      = document.getElementById('enc-lib');
   const elBlk         = document.getElementById('blk');
   const elFPS         = document.getElementById('fps');
   const elPacketEnc   = document.getElementById('packet-encoding');
   const elRunTimeout  = document.getElementById('run-timeout');
 
-  const elEcLevel  = document.getElementById('eclevel');
-  const elScale    = document.getElementById('scale');
-  const elFormat   = document.getElementById('format');
-  const elLayers   = document.getElementById('layers');
-  const elQrEc     = document.getElementById('qrec');
-  const elQrScale  = document.getElementById('qrscale');
-  const elDmScale  = document.getElementById('dmscale');
-  const elPdfScale = document.getElementById('pdfscale');
-  const elPdfCols  = document.getElementById('pdfcols');
-  const elPdfRows  = document.getElementById('pdfrows');
+  const elQrEc    = document.getElementById('qrec');
+  const elQrScale = document.getElementById('qrscale');
 
   const elMatMode = document.getElementById('matmode');
   const elMatPad  = document.getElementById('matpad');
@@ -324,11 +273,6 @@
   const elDownloadConfig  = document.getElementById('download-config');
   const elRunIdDisplay = document.getElementById('run-id-display');
   const elReadyBadge   = document.getElementById('ready-badge');
-
-  const elAztecOpts = document.getElementById('aztec-opts');
-  const elQrOpts    = document.getElementById('qr-opts');
-  const elDmOpts    = document.getElementById('dm-opts');
-  const elPdfOpts   = document.getElementById('pdf-opts');
 
   // Batch elements
   const elBatchBtn       = document.getElementById('btn-batch');
@@ -428,23 +372,6 @@
     elBatchSkip.disabled = !batchRunning;
   }
 
-  // === Barcode type UI ===
-  function updateBarcodeUI() {
-    const bcid = elBcid.value;
-    elAztecOpts.style.display = bcid === 'azteccode' ? '' : 'none';
-    elQrOpts.style.display    = bcid === 'qrcode'    ? '' : 'none';
-    elDmOpts.style.display    = bcid === 'datamatrix' ? '' : 'none';
-    elPdfOpts.style.display   = bcid === 'pdf417'    ? '' : 'none';
-
-    // qrcode.min.js only available for QR
-    const qrOption = elEncLib.querySelector('option[value="qrcode.min.js"]');
-    qrOption.disabled = bcid !== 'qrcode';
-    if (bcid !== 'qrcode' && elEncLib.value === 'qrcode.min.js') {
-      elEncLib.value = 'bwip-js';
-    }
-  }
-  elBcid.addEventListener('change', updateBarcodeUI);
-
   // === Mat ===
   function applyMatSettings() {
     const mode = elMatMode.value;
@@ -472,94 +399,31 @@
     ctx.restore();
   }
 
-  // === Render barcode ===
+  // === Render barcode (QR only via qrcode.min.js) ===
   async function renderPacketAsBarcode(textOrBytes, encoding) {
-    const bcid   = elBcid.value;
-    const encLib = elEncLib.value;
+    if (typeof QRCode === 'undefined') throw new Error('qrcode.min.js not loaded');
+    const scale = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
+    const ecLevel = elQrEc.value;
 
     if (encoding === 'binary') {
-      // Binary mode: pass raw bytes to bwip-js
-      if (typeof bwipjs === 'undefined') throw new Error('bwip-js not loaded');
-      const opts = { bcid, includetext: false };
-
-      // bwip-js needs text as a string; for binary we use the byte array encoding
-      // Convert raw bytes to a string bwip-js can consume
-      let text = '';
-      for (let i = 0; i < textOrBytes.length; i++) {
-        text += String.fromCharCode(textOrBytes[i]);
-      }
-      opts.text = text;
-
-      if (bcid === 'azteccode') {
-        opts.scale    = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
-        opts.eclevel  = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
-        const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
-        const fmt     = elFormat.value;
-        if (layers > 0)         opts.layers = layers;
-        if (fmt === 'full')     opts.format = 'full';
-        if (fmt === 'compact')  opts.format = 'compact';
-      } else if (bcid === 'qrcode') {
-        opts.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
-        opts.eclevel = elQrEc.value;
-      } else if (bcid === 'datamatrix') {
-        opts.scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
-      } else if (bcid === 'pdf417') {
-        opts.scale = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
-        const cols = Math.max(0, Math.min(30, parseInt(elPdfCols.value, 10) || 0));
-        const rows = Math.max(0, Math.min(90, parseInt(elPdfRows.value, 10) || 0));
-        if (cols > 0) opts.columns = cols;
-        if (rows > 0) opts.rows    = rows;
-      }
-
-      bwipjs.toCanvas(elCanvas, opts);
-      return;
-    }
-
-    // base64url text mode (original path)
-    const text = textOrBytes;
-
-    if (bcid === 'qrcode' && encLib === 'qrcode.min.js') {
-      if (typeof QRCode === 'undefined') throw new Error('qrcode.min.js not loaded');
-      await QRCode.toCanvas(elCanvas, text, {
-        errorCorrectionLevel: elQrEc.value,
-        scale: Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2)),
+      // Pass raw bytes as QR byte-mode segment
+      await QRCode.toCanvas(elCanvas, [{ data: textOrBytes, mode: 'byte' }], {
+        errorCorrectionLevel: ecLevel,
+        scale,
         margin: 1,
       });
-      return;
+    } else {
+      // base64url string
+      await QRCode.toCanvas(elCanvas, textOrBytes, {
+        errorCorrectionLevel: ecLevel,
+        scale,
+        margin: 1,
+      });
     }
-
-    // bwip-js path
-    if (typeof bwipjs === 'undefined') throw new Error('bwip-js not loaded');
-    const opts = { bcid, text, includetext: false };
-
-    if (bcid === 'azteccode') {
-      opts.scale    = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
-      opts.eclevel  = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
-      const layers  = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
-      const fmt     = elFormat.value;
-      if (layers > 0)         opts.layers = layers;
-      if (fmt === 'full')     opts.format = 'full';
-      if (fmt === 'compact')  opts.format = 'compact';
-    } else if (bcid === 'qrcode') {
-      opts.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
-      opts.eclevel = elQrEc.value;
-    } else if (bcid === 'datamatrix') {
-      opts.scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
-    } else if (bcid === 'pdf417') {
-      opts.scale = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
-      const cols = Math.max(0, Math.min(30, parseInt(elPdfCols.value, 10) || 0));
-      const rows = Math.max(0, Math.min(90, parseInt(elPdfRows.value, 10) || 0));
-      if (cols > 0) opts.columns = cols;
-      if (rows > 0) opts.rows    = rows;
-    }
-
-    bwipjs.toCanvas(elCanvas, opts);
   }
 
   // === Build config from UI or from batch config object ===
   function buildConfigFromUI() {
-    const bcid      = elBcid.value;
-    const encLib    = elEncLib.value;
     const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 120));
     const fps       = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 12));
     const payloadSize = Math.max(10, Math.min(100000, parseInt(elPayloadSize.value, 10) || 500));
@@ -568,8 +432,8 @@
 
     const cfg = {
       label:          elLabel.value.trim() || null,
-      encoderLib:     encLib,
-      barcodeType:    bcid,
+      encoderLib:     'qrcode.min.js',
+      barcodeType:    'qrcode',
       packetEncoding: packetEncoding,
       blockSize,
       fps,
@@ -584,50 +448,29 @@
       },
     };
 
-    if (bcid === 'azteccode') {
-      cfg.ecLevel     = Math.max(0, Math.min(99, parseInt(elEcLevel.value, 10) || 33));
-      cfg.scale       = Math.max(1, Math.min(20, parseInt(elScale.value, 10) || 2));
-      cfg.aztecFormat = elFormat.value || 'auto';
-      cfg.aztecLayers = Math.max(0, Math.min(32, parseInt(elLayers.value, 10) || 0));
-    } else if (bcid === 'qrcode') {
-      cfg.ecLevel = elQrEc.value;
-      cfg.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
-    } else if (bcid === 'datamatrix') {
-      cfg.scale = Math.max(1, Math.min(20, parseInt(elDmScale.value, 10) || 2));
-    } else if (bcid === 'pdf417') {
-      cfg.scale   = Math.max(1, Math.min(10, parseInt(elPdfScale.value, 10) || 2));
-      cfg.pdfCols = Math.max(0, parseInt(elPdfCols.value, 10) || 0);
-      cfg.pdfRows = Math.max(0, parseInt(elPdfRows.value, 10) || 0);
-    }
+    cfg.ecLevel = elQrEc.value;
+    cfg.scale   = Math.max(1, Math.min(20, parseInt(elQrScale.value, 10) || 2));
 
     return cfg;
   }
 
   // Apply a batch config object to the UI
+  // Non-QR barcodeType values are coerced to 'qrcode' with a warning.
   function applyConfigToUI(cfg) {
-    if (cfg.label != null)         elLabel.value        = cfg.label;
-    if (cfg.payloadSize != null)   elPayloadSize.value  = cfg.payloadSize;
-    if (cfg.barcodeType != null)   elBcid.value         = cfg.barcodeType;
-    if (cfg.encoderLib != null)    elEncLib.value        = cfg.encoderLib;
-    if (cfg.blockSize != null)     elBlk.value          = cfg.blockSize;
-    if (cfg.fps != null)           elFPS.value          = cfg.fps;
-    if (cfg.packetEncoding != null) elPacketEnc.value   = cfg.packetEncoding;
-    if (cfg.timeoutSec != null)    elRunTimeout.value   = cfg.timeoutSec;
-    if (cfg.matMode != null)       elMatMode.value      = cfg.matMode;
-    if (cfg.matPad != null)        elMatPad.value       = cfg.matPad;
-
-    if (cfg.ecLevel != null)       elEcLevel.value      = cfg.ecLevel;
-    if (cfg.scale != null) {
-      elScale.value    = cfg.scale;
-      elQrScale.value  = cfg.scale;
-      elDmScale.value  = cfg.scale;
-      elPdfScale.value = cfg.scale;
+    if (cfg.barcodeType != null && cfg.barcodeType !== 'qrcode') {
+      showError(`Batch config barcodeType "${cfg.barcodeType}" is not supported — coercing to "qrcode".`);
     }
-    if (cfg.aztecFormat != null)   elFormat.value       = cfg.aztecFormat === 'auto' ? '' : cfg.aztecFormat;
-    if (cfg.aztecLayers != null)   elLayers.value       = cfg.aztecLayers;
-    if (cfg.ecLevel != null && cfg.barcodeType === 'qrcode') elQrEc.value = cfg.ecLevel;
-    if (cfg.pdfCols != null)       elPdfCols.value      = cfg.pdfCols;
-    if (cfg.pdfRows != null)       elPdfRows.value      = cfg.pdfRows;
+    if (cfg.label != null)         elLabel.value       = cfg.label;
+    if (cfg.payloadSize != null)   elPayloadSize.value = cfg.payloadSize;
+    if (cfg.blockSize != null)     elBlk.value         = cfg.blockSize;
+    if (cfg.fps != null)           elFPS.value         = cfg.fps;
+    if (cfg.packetEncoding != null) elPacketEnc.value  = cfg.packetEncoding;
+    if (cfg.timeoutSec != null)    elRunTimeout.value  = cfg.timeoutSec;
+    if (cfg.matMode != null)       elMatMode.value     = cfg.matMode;
+    if (cfg.matPad != null)        elMatPad.value      = cfg.matPad;
+
+    if (cfg.ecLevel != null)       elQrEc.value        = cfg.ecLevel;
+    if (cfg.scale != null)         elQrScale.value     = cfg.scale;
 
     if (cfg.env) {
       if (cfg.env.distance != null)   elDistance.value   = cfg.env.distance;
@@ -635,7 +478,6 @@
       if (cfg.env.notes != null)      elNotes.value      = cfg.env.notes;
     }
 
-    updateBarcodeUI();
     applyMatSettings();
   }
 
@@ -661,9 +503,9 @@
       runId:           runIdHex,
       label:           baseCfg.label || null,
       timestamp:       new Date().toISOString(),
-      encoderLib:      baseCfg.encoderLib || 'bwip-js',
-      encoderLibVersion: detectEncoderLibVersion(baseCfg.encoderLib || 'bwip-js'),
-      barcodeType:     baseCfg.barcodeType || 'azteccode',
+      encoderLib:      'qrcode.min.js',
+      encoderLibVersion: detectEncoderLibVersion('qrcode.min.js'),
+      barcodeType:     'qrcode',
       packetEncoding:  baseCfg.packetEncoding || 'base64url',
       blockSize,
       fps:             baseCfg.fps || 12,
@@ -678,37 +520,15 @@
       screen:          collectScreenMetadata(),
     };
 
-    // Barcode-specific config
-    const bcid = config.barcodeType;
-    if (bcid === 'azteccode') {
-      config.ecLevel     = baseCfg.ecLevel != null ? baseCfg.ecLevel : 33;
-      config.scale       = baseCfg.scale != null ? baseCfg.scale : 2;
-      config.aztecFormat = baseCfg.aztecFormat || 'auto';
-      config.aztecLayers = baseCfg.aztecLayers != null ? baseCfg.aztecLayers : 0;
-    } else if (bcid === 'qrcode') {
-      config.ecLevel = baseCfg.ecLevel || 'M';
-      config.scale   = baseCfg.scale != null ? baseCfg.scale : 2;
-    } else if (bcid === 'datamatrix') {
-      config.scale = baseCfg.scale != null ? baseCfg.scale : 2;
-    } else if (bcid === 'pdf417') {
-      config.scale   = baseCfg.scale != null ? baseCfg.scale : 2;
-      config.pdfCols = baseCfg.pdfCols != null ? baseCfg.pdfCols : 0;
-      config.pdfRows = baseCfg.pdfRows != null ? baseCfg.pdfRows : 0;
-    }
+    config.ecLevel = baseCfg.ecLevel || 'M';
+    config.scale   = baseCfg.scale != null ? baseCfg.scale : 2;
 
     return { payload, runIdHex, runIdBytes, config };
   }
 
   function detectEncoderLibVersion(lib) {
-    if (lib === 'bwip-js') {
-      if (typeof bwipjs !== 'undefined' && bwipjs.VERSION) return 'bwip-js ' + bwipjs.VERSION;
-      return 'bwip-js (version unknown)';
-    }
-    if (lib === 'qrcode.min.js') {
-      if (typeof QRCode !== 'undefined' && QRCode.version) return 'qrcode.min.js ' + QRCode.version;
-      return 'qrcode.min.js (version unknown)';
-    }
-    return lib;
+    if (typeof QRCode !== 'undefined' && QRCode.version) return 'qrcode.min.js ' + QRCode.version;
+    return 'qrcode.min.js (version unknown)';
   }
 
   // === Generate payload (single run, manual) ===
@@ -833,7 +653,6 @@
     clearError();
     clearCanvas();
     applyMatSettings();
-    updateBarcodeUI();
 
     try {
       await startStreaming(currentPayload, currentRunIdBytes, currentRunIdHex, currentConfig);
@@ -1036,7 +855,6 @@
 
   // Init
   clearCanvas();
-  updateBarcodeUI();
   applyMatSettings();
   setButtons(false, false);
 
