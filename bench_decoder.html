@@ -14,6 +14,7 @@
   <script src="./libs/jsQR.js"></script>
   <script src="./libs/zxing-wasm.js"></script>
   <script src="./libs/qram-utils.js"></script>
+  <script src="./libs/qram-scan.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -455,6 +456,12 @@
   // zxing-wasm loop (uses same rVFC pattern as jsQR — terminates via scanning flag)
   let cameraStream  = null;
 
+  // Generation counter: incremented each time a new scan loop is started.
+  // Each loop closure captures its own `myGen` and bails out when scanGen
+  // advances (e.g. when waitForNextRun or the run-ID-change path in
+  // onScanResult starts a fresh loop), preventing double-loop races.
+  let scanGen = 0;
+
   // jsQR (no timer needed — uses requestVideoFrameCallback, self-terminates via scanning flag)
 
   // Timeouts
@@ -693,25 +700,21 @@
     video.src = '';
   }
 
-  // === zxing-wasm scan loop (rVFC-based, QR-only) ===
+  // === zxing-wasm scan loop (rVFC-based with rAF fallback, QR-only) ===
   function startZXingWasmLoop() {
     if (!window.ZXingWASM) throw new Error('zxing-wasm not loaded');
     const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
     const tryHarder = document.getElementById('try-harder-cb').checked;
+    const myGen = ++scanGen;
 
-    async function scheduleZXingWasmFrame() {
-      if (!scanning) return;
-      video.requestVideoFrameCallback(async () => {
-        if (!scanning) return;
+    function scheduleZXingWasmFrame() {
+      if (!scanning || scanGen !== myGen) return;
+      qramScan.scheduleFrame(video, async () => {
+        if (!scanning || scanGen !== myGen) return;
         if (video.readyState < 2) { scheduleZXingWasmFrame(); return; }
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (!w || !h) { scheduleZXingWasmFrame(); return; }
-        jsqrCanvas.width  = w;
-        jsqrCanvas.height = h;
-        ctx.drawImage(video, 0, 0, w, h);
+        const { width, height } = qramScan.cropCapture(video, jsqrCanvas, ctx, { fitMode: 'contain' });
         scanAttempts++;
-        const imageData = ctx.getImageData(0, 0, w, h);
+        const imageData = ctx.getImageData(0, 0, width, height);
         try {
           const results = await ZXingWASM.readBarcodesFromImageData(imageData, {
             formats: ['QRCode'],
@@ -841,27 +844,26 @@
     }
   }
 
-  // === jsQR scanning loop (uses requestVideoFrameCallback) ===
+  // === jsQR scanning loop (rVFC-based with rAF fallback, QR-only) ===
+  // The callback is async and awaits onScanResult before scheduling the next
+  // frame — this prevents concurrent onScanResult calls from racing on dedup
+  // state, run-ID detection, and decoder.enqueue ordering.
   function startJsQRLoop() {
     if (!window.jsQR) throw new Error('jsQR library not loaded');
     const ctx = jsqrCanvas.getContext('2d', { willReadFrequently: true });
+    const myGen = ++scanGen;
 
     function scheduleJsQRFrame() {
-      if (!scanning) return;
-      video.requestVideoFrameCallback(() => {
-        if (!scanning) return;
+      if (!scanning || scanGen !== myGen) return;
+      qramScan.scheduleFrame(video, async () => {
+        if (!scanning || scanGen !== myGen) return;
         if (video.readyState < 2) { scheduleJsQRFrame(); return; }
-        const w = video.videoWidth;
-        const h = video.videoHeight;
-        if (!w || !h) { scheduleJsQRFrame(); return; }
-        jsqrCanvas.width  = w;
-        jsqrCanvas.height = h;
-        ctx.drawImage(video, 0, 0, w, h);
+        const { width, height } = qramScan.cropCapture(video, jsqrCanvas, ctx, { fitMode: 'contain' });
         scanAttempts++;
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const code = jsQR(imageData.data, w, h, { inversionAttempts: 'dontInvert' });
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const code = jsQR(imageData.data, width, height, { inversionAttempts: 'dontInvert' });
         if (code && code.data) {
-          onScanResult(code.data);
+          await onScanResult(code.data);
         }
         scheduleJsQRFrame();
       });

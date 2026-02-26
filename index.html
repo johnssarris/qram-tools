@@ -12,6 +12,7 @@
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
   <script src="./libs/qram-utils.js"></script>
+  <script src="./libs/qram-scan.js"></script>
   <style>
     * {
       box-sizing: border-box;
@@ -355,6 +356,10 @@
     let lastPacketSignature = null;
     let speedInterval = null;
     let pendingProgressUpdate = false;
+    // Generation counter — incremented each time initCamera starts a new scan
+    // loop. The loop closure captures its own gen; stale callbacks bail out
+    // when scanGen advances, preventing double-loop races on reset/reinit.
+    let scanGen = 0;
 
     // Speed tracking
     let firstPacketTime = null;
@@ -517,11 +522,12 @@
 
         await video.play();
 
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-
         statusEl.textContent = 'Point camera at animated QR...';
-        requestAnimationFrame(scanFrame);
+
+        // Advance generation so any leftover callbacks from a previous loop
+        // exit cleanly, then start the new loop.
+        const gen = ++scanGen;
+        qramScan.scheduleFrame(video, () => scanFrame(gen));
       } catch (err) {
         scanning = false;
         if (decoder) {
@@ -570,21 +576,18 @@
       });
     }
 
-    // Scan frame
-    async function scanFrame() {
-      if (!scanning) return;
+    // Scan frame — aligned to unique video frames via rVFC (rAF fallback).
+    // `gen` is captured from scanGen at loop-start; stale closures bail out
+    // when scanGen advances (reset/reinit), preventing double loops.
+    async function scanFrame(gen) {
+      if (!scanning || gen !== scanGen) return;
 
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        // Only resize canvas when video dimensions actually change
-        const vw = video.videoWidth, vh = video.videoHeight;
-        if (canvas.width !== vw || canvas.height !== vh) {
-          canvas.width = vw;
-          canvas.height = vh;
-        }
-        ctx.drawImage(video, 0, 0, vw, vh);
-
-        const imageData = ctx.getImageData(0, 0, vw, vh);
-        const code = jsQR(imageData.data, vw, vh, {
+        // Crop to the visible 85 % scan region and downscale to 480 px.
+        // canvas.width/height are managed by cropCapture.
+        const { width, height } = qramScan.cropCapture(video, canvas, ctx);
+        const imageData = ctx.getImageData(0, 0, width, height);
+        const code = jsQR(imageData.data, width, height, {
           inversionAttempts: 'dontInvert'
         });
 
@@ -592,35 +595,34 @@
           try {
             const packetData = new Uint8Array(code.binaryData);
 
-            // Skip duplicate consecutive frames (encoder FPS << scan FPS)
-            // Sample ~32 evenly-spaced bytes for a fast fingerprint
+            // Skip duplicate consecutive frames (encoder FPS << scan FPS).
+            // Sample ~32 evenly-spaced bytes for a fast fingerprint.
             const len = packetData.length;
             const step = Math.max(1, len >> 5);
             let sig = len;
             for (let i = 0; i < len; i += step) sig = (sig * 31 + packetData[i]) | 0;
-            if (sig === lastPacketSignature) {
-              requestAnimationFrame(scanFrame);
-              return;
-            }
-            lastPacketSignature = sig;
 
-            // Enqueue packet to decoder
-            const progress = await decoder.enqueue(packetData);
+            if (sig !== lastPacketSignature) {
+              lastPacketSignature = sig;
 
-            packetsScanned++;
-            flashIndicator();
+              // Enqueue packet to decoder
+              const progress = await decoder.enqueue(packetData);
 
-            if (!firstPacketTime) {
-              firstPacketTime = Date.now();
-              startSpeedTracking();
-              hideError();
-            }
+              packetsScanned++;
+              flashIndicator();
 
-            // Update progress state, then batch the DOM write
-            if (progress) {
-              lastReceivedBlocks = progress.receivedBlocks;
-              lastTotalBlocks = progress.totalBlocks;
-              scheduleProgressUpdate();
+              if (!firstPacketTime) {
+                firstPacketTime = Date.now();
+                startSpeedTracking();
+                hideError();
+              }
+
+              // Update progress state, then batch the DOM write
+              if (progress) {
+                lastReceivedBlocks = progress.receivedBlocks;
+                lastTotalBlocks = progress.totalBlocks;
+                scheduleProgressUpdate();
+              }
             }
           } catch (err) {
             // Ignore invalid packets silently - might not be qram format
@@ -628,7 +630,10 @@
         }
       }
 
-      requestAnimationFrame(scanFrame);
+      // Re-check after any awaits: gen may have been superseded.
+      if (scanning && gen === scanGen) {
+        qramScan.scheduleFrame(video, () => scanFrame(gen));
+      }
     }
 
     // Handle completion
