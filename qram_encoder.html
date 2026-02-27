@@ -147,7 +147,7 @@
   function handleFile(file) {
     if (!file) return;
     // 500 KB limit — QR transfer of larger files would be impractical
-    if (file.size > 500 * 1024) {
+    if (file.size > 5000 * 1024) {
       showError('File too large. Keep files under 100 KB for practical QR transfer.');
       return;
     }
