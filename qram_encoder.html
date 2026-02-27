@@ -349,7 +349,7 @@
     }
 
     const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
-    const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 300));
+    const blockSize = Math.max(50, Math.min(20000, parseInt(elBlk.value, 10) || 300));
     const delay = 1000 / fps;
 
     let enc;
