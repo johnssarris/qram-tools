@@ -8,6 +8,8 @@
   <!-- Libraries (same as your original) -->
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/qrcode.min.js"></script>
+  <script src="./libs/pako.min.js"></script>
+  <script src="./libs/qram-compress.js"></script>
   <script src="./libs/qram-utils.js"></script>
 
   <style>
@@ -89,6 +91,7 @@
     <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
     <label>Block:<input type="number" id="blk" value="200" min="50" max="2000"></label>
     <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
+    <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
   </div>
 
   <canvas id="qr" width="350" height="350"></canvas>
@@ -100,7 +103,8 @@
   const elTxt   = document.getElementById('txt');
   const elFPS   = document.getElementById('fps');
   const elBlk   = document.getElementById('blk');
-  const elAutoBlk = document.getElementById('auto-blk');
+  const elAutoBlk  = document.getElementById('auto-blk');
+  const elCompress = document.getElementById('compress');
   const elStart = document.getElementById('start');
   const elStop  = document.getElementById('stop');
   const elStats = document.getElementById('stats');
@@ -331,13 +335,26 @@
       return;
     }
 
+    // Opportunistic compression: compress before QRAM encoding, keep only if
+    // it meaningfully shrinks the payload (see qram-compress.js thresholds).
+    let sendData = data;
+    if (elCompress.checked && window.qramCompress) {
+      const cr = await qramCompress.maybeCompress(data);
+      sendData = cr.data;
+      if (cr.compressed) {
+        elDataSize.textContent = `Data: ${formatBytes(cr.originalSize)} → ${formatBytes(cr.sentSize)} (gz)`;
+      } else {
+        elDataSize.textContent = `Data: ${formatBytes(cr.sentSize)} (no gz)`;
+      }
+    }
+
     const fps = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
     const blockSize = Math.max(50, Math.min(2000, parseInt(elBlk.value, 10) || 300));
     const delay = 1000 / fps;
 
     let enc;
     try {
-      enc = new qram.Encoder({ data, blockSize });
+      enc = new qram.Encoder({ data: sendData, blockSize });
     } catch (e) {
       showError("Failed to create qram.Encoder (bad options?)", e);
       return;
@@ -356,9 +373,9 @@
     setButtons(true);
 
     let n = 0;
-    const blocks = Math.ceil(data.length / blockSize);
+    const blocks = Math.ceil(sendData.length / blockSize);
     const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
-    elStats.textContent = `${modeLabel}${formatBytes(data.length)}, ${blocks} blocks`;
+    elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
 
     try {
       while (!cancelRequested) {
@@ -377,7 +394,7 @@
         }
 
         n++;
-        elStats.textContent = `${modeLabel}${formatBytes(data.length)}, ${blocks} blocks, packet #${n}`;
+        elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks, packet #${n}`;
 
         await new Promise(ok => setTimeout(ok, delay));
       }

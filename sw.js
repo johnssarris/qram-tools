@@ -1,11 +1,13 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-decoder-v4';
+const CACHE_NAME = 'qram-decoder-v5';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './libs/qram.min.js',
-  './libs/jsQR.js'
+  './libs/jsQR.js',
+  './libs/pako.min.js',
+  './libs/qram-compress.js',
 ];
 
 self.addEventListener('install', event => {

@@ -11,6 +11,8 @@
   <link rel="manifest" href="manifest.json">
   <script src="./libs/qram.min.js"></script>
   <script src="./libs/jsQR.js"></script>
+  <script src="./libs/pako.min.js"></script>
+  <script src="./libs/qram-compress.js"></script>
   <script src="./libs/qram-utils.js"></script>
   <script src="./libs/qram-scan.js"></script>
   <style>
@@ -491,7 +493,9 @@
 
       // Handle decode completion
       decodePromise.then(result => {
-        onComplete(result);
+        onComplete(result).catch(err => {
+          showError('Decode error: ' + err.message);
+        });
       }).catch(err => {
         if (err.name !== 'AbortError') {
           showError('Decode error: ' + err.message);
@@ -637,17 +641,26 @@
     }
 
     // Handle completion
-    function onComplete(result) {
+    async function onComplete(result) {
       scanning = false;
       stopSpeedTracking();
 
-      const data = result.data;
+      let data     = result.data;
+      let wireSize = data.length; // bytes actually transmitted over QR
 
-      // Calculate final speed
+      // Decompress if the payload carries a QRAMC compression envelope.
+      // Falls back gracefully when qram-compress.js is not loaded.
+      if (window.qramCompress) {
+        const dr = await qramCompress.maybeDecompress(data);
+        data     = dr.data;
+        wireSize = dr.wireSize;
+      }
+
+      // Calculate final speed using wire (compressed) bytes for accuracy
       if (firstPacketTime) {
         const elapsed = (Date.now() - firstPacketTime) / 1000;
         if (elapsed > 0) {
-          const speed = data.length / elapsed;
+          const speed = wireSize / elapsed;
           speedDisplayEl.textContent = formatSpeed(speed);
         }
       }
