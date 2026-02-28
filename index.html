@@ -1,422 +1,372 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="QRAM">
-  <meta name="theme-color" content="#1a1a2e">
+  <meta name="theme-color" content="#0f0f1a">
   <title>QRAM</title>
   <link rel="manifest" href="manifest.json">
-
-  <!-- Shared libraries -->
-  <script src="./libs/qram.min.js"></script>
-  <script src="./libs/pako.min.js"></script>
-  <script src="./libs/qram-compress.js"></script>
-  <script src="./libs/qram-utils.js"></script>
-  <!-- Encoder -->
-  <script src="./libs/qrcode.min.js"></script>
-  <!-- Decoder -->
-  <script src="./libs/jsQR.js"></script>
-  <script src="./libs/qram-scan.js"></script>
-
   <style>
-    /* ── Reset & base ─────────────────────────────────────────────────── */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
-      color: #eee;
-      min-height: 100vh;
-      padding: 15px;
+    :root {
+      --bg:      #0f0f1a;
+      --surface: #1a1a2e;
+      --border:  #2a2a4a;
+      --accent:  #00d4ff;
+      --green:   #00ff88;
+      --red:     #ff4466;
+      --text:    #e0e0f0;
+      --muted:   #8888aa;
+      --radius:  10px;
     }
 
-    .container {
-      max-width: 600px;
-      margin: 0 auto;
-    }
-
-    /* ── Page-level Encode / Decode tabs ──────────────────────────────── */
-    .page-tabs { display: flex; gap: 0; margin-bottom: 20px; }
-
-    .page-tab {
-      flex: 1;
-      text-align: center;
-      padding: 12px 0;
-      background: #16213e;
-      color: #888;
-      border: 1px solid #333;
-      cursor: pointer;
-      font-size: 15px;
-      font-weight: 700;
-      transition: background .15s, color .15s, border-color .15s;
-      font-family: inherit;
-    }
-
-    .page-tab:first-child { border-radius: 10px 0 0 10px; }
-    .page-tab:last-child  { border-radius: 0 10px 10px 0; }
-
-    .page-tab.active { background: #00d4ff; color: #000; border-color: #00d4ff; }
-    .page-tab:not(.active):hover { background: #1e2d4a; color: #ccc; }
-
-    /* ── Decoder styles ───────────────────────────────────────────────── */
-    #video-container {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 1;
-      background: #000;
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 15px;
-    }
-
-    #video { width: 100%; height: 100%; object-fit: cover; }
-    #canvas { display: none; }
-
-    #overlay {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-    }
-
-    #scan-region {
-      width: 75%; height: 75%;
-      border: 3px solid #00d4ff;
-      border-radius: 12px;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-    }
-
-    .status-box {
-      background: #16213e;
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 12px;
-    }
-
-    .status-label { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
-    .status-value { font-size: 1.1rem; font-weight: 600; }
-
-    #progress-bar {
-      width: 100%; height: 10px;
-      background: #16213e;
-      border-radius: 5px;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
-
-    #progress-fill {
+    html, body {
       height: 100%;
-      background: linear-gradient(90deg, #00d4ff, #00ff88);
-      width: 0%;
-      transition: width 0.2s ease;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      overscroll-behavior: none;
     }
 
-    .stats-row { display: flex; gap: 10px; margin-bottom: 12px; }
-
-    .stat-box {
+    /* ── Tabs ── */
+    #tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .tab-btn {
       flex: 1;
-      background: #16213e;
-      border-radius: 10px;
-      padding: 12px;
-      text-align: center;
+      padding: 14px;
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      color: var(--muted);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color .15s, border-color .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tab-btn.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
     }
 
-    .stat-value { font-size: 1.3rem; font-weight: bold; color: #00d4ff; }
-    .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
-    #speed-display { font-size: 0.85rem; white-space: pre-line; line-height: 1.4; }
+    /* ── Panels ── */
+    .panel { display: none; padding: 16px; }
+    .panel.active { display: block; }
 
-    #result-container {
-      display: none;
-      background: #16213e;
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 12px;
+    /* ── Form elements ── */
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+    input[type=range] { width: 100%; accent-color: var(--accent); }
+    select, textarea {
+      width: 100%; background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text); padding: 8px 10px;
+      font-size: 14px; outline: none;
     }
+    select:focus, textarea:focus { border-color: var(--accent); }
+    textarea { resize: vertical; font-family: 'Menlo', 'Courier New', monospace; }
 
-    #result-container.show { display: block; }
-
-    #result {
-      width: 100%; height: 180px;
-      background: #0d1117;
-      border: 1px solid #333;
-      border-radius: 8px;
-      color: #00ff88;
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 11px;
-      padding: 10px;
-      resize: vertical;
+    /* ── Buttons ── */
+    button {
+      cursor: pointer; border: none; border-radius: var(--radius);
+      font-size: 14px; font-weight: 600; padding: 10px 18px;
+      transition: opacity .15s, transform .1s;
+      -webkit-tap-highlight-color: transparent;
     }
+    button:active { transform: scale(.97); }
+    .btn-primary  { background: var(--accent); color: #000; }
+    .btn-success  { background: var(--green);  color: #000; }
+    .btn-danger   { background: var(--red);    color: #fff; }
+    .btn-ghost    { background: var(--border); color: var(--text); }
+    button:disabled { opacity: .4; cursor: default; }
 
-    .file-result { text-align: center; padding: 20px 10px; }
-    .file-result-icon { font-size: 48px; margin-bottom: 10px; }
-    .file-result-name { font-size: 1rem; font-weight: 600; color: #00ff88; word-break: break-all; margin-bottom: 5px; }
-    .file-result-size { font-size: 0.85rem; color: #888; }
+    /* ── Rows ── */
+    .row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+    .row label { margin: 0; flex: 1; }
 
-    .btn {
-      width: 100%; padding: 14px;
-      border: none; border-radius: 10px;
-      font-size: 1rem; font-weight: 600;
-      cursor: pointer; margin-bottom: 8px;
-      transition: transform 0.1s;
+    /* ── Mode tabs (Text / File) inside encoder ── */
+    #mode-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
+    .mode-btn {
+      flex: 1; padding: 8px; background: var(--border); color: var(--muted);
+      border-radius: var(--radius); font-size: 13px; font-weight: 600;
     }
+    .mode-btn.active { background: var(--accent); color: #000; }
 
-    .btn:active { transform: scale(0.98); }
-    .btn-success { background: #00ff88; color: #000; }
-    .btn-secondary { background: #16213e; color: #eee; }
-
-    #error-msg {
-      background: #ff4444; color: #fff;
-      padding: 10px 15px; border-radius: 8px;
-      margin-bottom: 12px; display: none; font-size: 0.9rem;
-    }
-
-    #error-msg.show { display: block; }
-
-    .scan-indicator {
-      position: absolute; bottom: 10px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 255, 136, 0.9); color: #000;
-      padding: 5px 12px; border-radius: 20px;
-      font-size: 0.75rem; font-weight: 600;
-      opacity: 0; transition: opacity 0.1s;
-    }
-
-    .scan-indicator.flash { opacity: 1; }
-
-    /* ── Encoder styles (scoped to #panel-encode) ─────────────────────── */
-    #panel-encode { font-family: system-ui, sans-serif; }
-
-    #panel-encode h2 { margin: 0 0 14px 0; font-size: 1.2rem; }
-
-    #panel-encode textarea {
-      width: 100%; height: 220px;
-      background: #0d1117; color: #0f0;
-      border: 1px solid #333; padding: 10px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 12px; border-radius: 8px;
-    }
-
-    #start {
-      display: block; width: 100%;
-      padding: 14px; margin-top: 12px;
-      border: none; border-radius: 10px;
-      font-size: 1.05rem; font-weight: 700; cursor: pointer;
-      background: #00ff4c; color: #000;
-      transition: transform .1s;
-    }
-    #start:active { transform: scale(0.98); }
-    #start:disabled { opacity: .55; cursor: not-allowed; }
-
-    #stop {
-      display: block; width: 100%;
-      padding: 16px; margin-top: 14px;
-      border: none; border-radius: 10px;
-      font-size: 1.1rem; font-weight: 700; cursor: pointer;
-      background: #ff4b4b; color: #fff;
-      transition: transform .1s;
-    }
-    #stop:active { transform: scale(0.98); }
-
-    #panel-encode canvas {
-      display: block;
-      width: 100%; max-width: 350px; aspect-ratio: 1;
-      margin: 0 auto 4px;
-      background: #fff; border-radius: 8px;
-    }
-
-    #stats {
-      text-align: center; font-size: 13px; color: #b7b7b7;
-      padding: 6px 0 2px; min-height: 22px;
-    }
-
-    .enc-settings { margin-top: 10px; }
-    .enc-settings label { font-size: 13px; }
-
-    #err {
-      white-space: pre-wrap; background: #2a1a1a; border: 1px solid #5a2a2a;
-      color: #ffd0d0; padding: 10px; border-radius: 8px; display: none;
-      margin-top: 10px; font-family: ui-monospace, monospace; font-size: 12px;
-    }
-
-    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 12px 0; }
-    .row label { color: #c8c8c8; display: flex; gap: 6px; align-items: center; }
-
-    .row input[type="number"] {
-      width: 80px; padding: 6px 8px;
-      background: #0d1117; border: 1px solid #333; color: #eee; border-radius: 6px;
-    }
-
-    /* Encoder inner Text / File mode tabs */
-    .mode-tabs { display: flex; gap: 0; margin-bottom: 12px; }
-    .mode-tab {
-      padding: 10px 24px; background: #16213e; color: #888;
-      border: 1px solid #333; cursor: pointer; font-size: 14px; font-weight: 600;
-      transition: all .15s;
-    }
-    .mode-tab:first-child { border-radius: 8px 0 0 8px; }
-    .mode-tab:last-child  { border-radius: 0 8px 8px 0; }
-    .mode-tab.active      { background: #00d4ff; color: #000; border-color: #00d4ff; }
-    .mode-tab:not(.active):hover { background: #1e2d4a; }
-
-    /* Drop zone */
+    /* ── File drop zone ── */
     #drop-zone {
-      width: 100%; height: 220px;
-      background: #0d1117; border: 2px dashed #444; border-radius: 8px;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 10px; cursor: pointer; transition: border-color .2s, background .2s;
+      border: 2px dashed var(--border); border-radius: var(--radius);
+      padding: 28px; text-align: center; color: var(--muted);
+      transition: border-color .2s, background .2s; margin-bottom: 12px;
+      cursor: pointer;
     }
-    #drop-zone.active   { border-color: #00d4ff; background: #0d1117cc; }
-    #drop-zone.has-file { border-color: #00ff88; border-style: solid; }
-    #drop-zone .drop-icon { font-size: 36px; color: #555; }
-    #drop-zone .drop-text { color: #888; font-size: 14px; }
-    #drop-zone .file-info { color: #00ff88; font-size: 14px; font-weight: 600; }
-    #drop-zone .file-size { color: #888; font-size: 12px; }
-    #drop-zone .drop-hint { color: #666; font-size: 11px; }
+    #drop-zone.drag-over { border-color: var(--accent); background: rgba(0,212,255,.06); }
+    #drop-zone.has-file  { border-color: var(--green);  color: var(--green); }
+    #drop-zone .drop-hint { font-size: 13px; margin-top: 4px; color: var(--muted); }
     #file-input { display: none; }
 
-    .auto-label { color: #c8c8c8; display: flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
-    .auto-label input[type="checkbox"] { accent-color: #00d4ff; width: 16px; height: 16px; cursor: pointer; }
-    #blk:disabled { opacity: .6; cursor: not-allowed; }
+    /* ── Encoder settings ── */
+    .settings-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      margin-bottom: 14px;
+    }
+    .settings-grid .field { display: flex; flex-direction: column; gap: 4px; }
+    .settings-grid label { font-size: 12px; }
+    .settings-grid select { padding: 6px 8px; font-size: 13px; }
 
-    #data-size { font-size: 12px; color: #888; margin-top: 4px; }
+    .checkbox-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .checkbox-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+    .checkbox-row label { margin: 0; font-size: 14px; color: var(--text); cursor: pointer; }
+
+    /* ── QR canvas ── */
+    #qr-wrap {
+      display: none; flex-direction: column; align-items: center;
+      gap: 10px; margin: 14px 0;
+    }
+    #qr-wrap.active { display: flex; }
+    #qr-canvas {
+      border-radius: var(--radius); background: #fff;
+      max-width: 100%; width: 340px; height: 340px;
+      image-rendering: pixelated;
+    }
+    #enc-status { font-size: 13px; color: var(--muted); text-align: center; }
+    #enc-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+    /* ── Encoder action bar ── */
+    #enc-actions { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+
+    /* ── Decoder: video ── */
+    #video-wrap {
+      position: relative; border-radius: var(--radius);
+      overflow: hidden; background: #000; aspect-ratio: 1;
+      max-width: 100%; margin-bottom: 14px;
+    }
+    #video {
+      width: 100%; height: 100%;
+      object-fit: cover; display: block;
+    }
+    #scan-overlay {
+      position: absolute; inset: 7.5%; /* 85% of the frame */
+      border: 2px solid rgba(0,212,255,.7);
+      border-radius: 8px; pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,.35);
+    }
+
+    /* ── Progress ── */
+    #progress-wrap { margin-bottom: 14px; }
+    #progress-bar-bg {
+      height: 6px; background: var(--border);
+      border-radius: 3px; overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%; width: 0%; background: var(--accent);
+      border-radius: 3px; transition: width .25s ease;
+    }
+    #progress-bar.done { background: var(--green); }
+
+    /* ── Stats ── */
+    #stats {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 8px; margin-bottom: 14px;
+    }
+    .stat-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 8px; text-align: center;
+    }
+    .stat-val { font-size: 18px; font-weight: 700; color: var(--accent); }
+    .stat-lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Decode status / result ── */
+    #dec-status { font-size: 14px; color: var(--muted); margin-bottom: 10px; min-height: 22px; }
+    #result-area { display: none; }
+    #result-text {
+      width: 100%; min-height: 120px; max-height: 260px;
+      font-family: 'Menlo', 'Courier New', monospace; font-size: 13px;
+    }
+    #result-file {
+      display: none; background: var(--surface); border: 1px solid var(--green);
+      border-radius: var(--radius); padding: 14px; margin-bottom: 10px;
+      color: var(--green);
+    }
+    #result-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    #error-box {
+      display: none; background: rgba(255,68,102,.1);
+      border: 1px solid var(--red); border-radius: var(--radius);
+      padding: 10px 14px; color: var(--red); font-size: 13px;
+      margin-top: 10px;
+    }
+
+    /* ── Misc ── */
+    .field-row { margin-bottom: 12px; }
+    .section-header {
+      font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--muted); margin-bottom: 8px; margin-top: 14px;
+    }
+    .val-display { font-size: 13px; color: var(--accent); font-weight: 600; }
   </style>
 </head>
-
 <body>
-  <div class="container">
 
-    <!-- Page-level tab switcher -->
-    <div class="page-tabs" role="tablist">
-      <button class="page-tab"        data-page="encode" role="tab">Encode</button>
-      <button class="page-tab active" data-page="decode" role="tab">Decode</button>
+<div id="tabs">
+  <button class="tab-btn" id="tab-decode" onclick="switchTab('decode')">Decode</button>
+  <button class="tab-btn" id="tab-encode" onclick="switchTab('encode')">Encode</button>
+</div>
+
+<!-- ══════════════ DECODE PANEL ══════════════ -->
+<div class="panel" id="panel-decode">
+
+  <div id="video-wrap">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="scan-overlay"></div>
+  </div>
+
+  <div id="progress-wrap">
+    <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+  </div>
+
+  <div id="stats">
+    <div class="stat-box"><div class="stat-val" id="s-decoded">—</div><div class="stat-lbl">Decoded</div></div>
+    <div class="stat-box"><div class="stat-val" id="s-total">—</div><div class="stat-lbl">Total</div></div>
+    <div class="stat-box"><div class="stat-val" id="s-frames">0</div><div class="stat-lbl">Frames</div></div>
+    <div class="stat-box"><div class="stat-val" id="s-speed">—</div><div class="stat-lbl">KB/s</div></div>
+  </div>
+
+  <div id="dec-status">Waiting for camera…</div>
+
+  <div id="result-area">
+    <div id="result-file">
+      <strong id="result-filename"></strong>
+      <div id="result-filesize" style="font-size:12px;color:var(--muted);margin-top:2px;"></div>
     </div>
+    <textarea id="result-text" readonly placeholder="Decoded text will appear here…"></textarea>
+    <div id="result-actions">
+      <button class="btn-primary"  id="btn-copy"     onclick="app.copyResult()">Copy</button>
+      <button class="btn-success"  id="btn-save"     onclick="app.saveResult()">Save</button>
+      <button class="btn-ghost"    id="btn-dec-reset" onclick="app.resetDecoder()">Reset</button>
+    </div>
+  </div>
 
-    <!-- ── Encoder panel (hidden by default) ──────────────────────────── -->
-    <div id="panel-encode" style="display:none">
+  <div id="error-box"></div>
+</div>
 
-      <!-- Setup view: shown before encoding starts -->
-      <div id="enc-setup">
-        <h2>QRAM Encoder</h2>
+<!-- ══════════════ ENCODE PANEL ══════════════ -->
+<div class="panel" id="panel-encode">
 
-        <div class="mode-tabs">
-          <div class="mode-tab active" data-mode="text">Text</div>
-          <div class="mode-tab" data-mode="file">File</div>
-        </div>
+  <!-- Input mode selector -->
+  <div id="mode-tabs">
+    <button class="mode-btn" id="mode-text" onclick="app.setInputMode('text')">Text</button>
+    <button class="mode-btn" id="mode-file" onclick="app.setInputMode('file')">File</button>
+  </div>
 
-        <div id="text-input">
-          <textarea id="txt" placeholder="Paste text here..."></textarea>
-        </div>
+  <!-- Text input -->
+  <div id="text-input-area" class="field-row">
+    <label for="text-in">Paste text to transmit</label>
+    <textarea id="text-in" rows="6" placeholder="Type or paste text here…"></textarea>
+  </div>
 
-        <div id="file-input-area" style="display:none">
-          <div id="drop-zone">
-            <div class="drop-icon">📁</div>
-            <div class="drop-text">Drop a file here or click to browse</div>
-            <div class="drop-hint">SSH keys, configs, small files</div>
-          </div>
-          <input type="file" id="file-input" />
-        </div>
+  <!-- File drop zone -->
+  <div id="file-input-area" style="display:none">
+    <div id="drop-zone"
+         onclick="document.getElementById('file-input').click()"
+         ondragover="event.preventDefault();this.classList.add('drag-over')"
+         ondragleave="this.classList.remove('drag-over')"
+         ondrop="app.handleDrop(event)">
+      <div id="drop-label">Tap to choose a file, or drag &amp; drop</div>
+      <div class="drop-hint">Max 5 MB</div>
+    </div>
+    <input type="file" id="file-input" onchange="app.handleFileSelect(event)">
+  </div>
 
-        <div id="data-size"></div>
-
-        <div class="row enc-settings">
-          <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
-          <label>Block:<input type="number" id="blk" value="200" min="50" max="5000"></label>
-          <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
-          <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
-        </div>
-
-        <button id="start">&#9654; Start Encoding</button>
-      </div><!-- /#enc-setup -->
-
-      <!-- Error box: always visible, shown between views if needed -->
-      <div id="err"></div>
-
-      <!-- Live view: shown while encoding is running -->
-      <div id="enc-live" style="display:none">
-        <canvas id="qr" width="350" height="350"></canvas>
-        <div id="stats"></div>
-        <button id="stop">&#9632; Stop</button>
-      </div><!-- /#enc-live -->
-
-    </div><!-- /#panel-encode -->
-
-    <!-- ── Decoder panel (visible by default) ─────────────────────────── -->
-    <div id="panel-decode">
-      <div id="error-msg"></div>
-
-      <div id="video-container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas"></canvas>
-        <div id="overlay">
-          <div id="scan-region"></div>
-        </div>
-        <div id="scan-indicator" class="scan-indicator">Packet</div>
+  <!-- Settings -->
+  <div class="section-header">Settings</div>
+  <div class="settings-grid">
+    <div class="field">
+      <label for="sel-fps">FPS</label>
+      <select id="sel-fps">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="5">5</option>
+        <option value="8">8</option>
+        <option value="10" selected>10</option>
+        <option value="15">15</option>
+        <option value="20">20</option>
+        <option value="30">30</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="sel-ec">Error Correction</label>
+      <select id="sel-ec">
+        <option value="0">L – Low (7%)</option>
+        <option value="1" selected>M – Medium (15%)</option>
+        <option value="2">Q – Quartile (25%)</option>
+        <option value="3">H – High (30%)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="sel-block">Block Size</label>
+      <select id="sel-block">
+        <option value="100">100 B</option>
+        <option value="200" selected>200 B</option>
+        <option value="300">300 B</option>
+        <option value="400">400 B</option>
+        <option value="500">500 B</option>
+        <option value="600">600 B</option>
+        <option value="800">800 B</option>
+        <option value="1000">1000 B</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <div class="checkbox-row" style="margin:0">
+        <input type="checkbox" id="chk-compress" checked>
+        <label for="chk-compress" style="font-size:13px">Compress</label>
       </div>
+    </div>
+  </div>
 
-      <div id="progress-bar">
-        <div id="progress-fill"></div>
-      </div>
+  <!-- Start / Stop -->
+  <div id="enc-actions">
+    <button class="btn-primary" id="btn-start" onclick="app.startEncoder()">Start</button>
+    <button class="btn-danger"  id="btn-stop"  onclick="app.stopEncoder()" disabled>Stop</button>
+  </div>
 
-      <div class="stats-row">
-        <div class="stat-box">
-          <div class="stat-value" id="blocks-received">0</div>
-          <div class="stat-label">Decoded</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="blocks-total">?</div>
-          <div class="stat-label">Blocks</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="packets-scanned">0 / ?</div>
-          <div class="stat-label">Frames</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="speed-display">--</div>
-          <div class="stat-label">Speed</div>
-        </div>
-      </div>
+  <!-- QR display -->
+  <div id="qr-wrap">
+    <canvas id="qr-canvas" width="340" height="340"></canvas>
+    <div id="enc-status"></div>
+  </div>
 
-      <div class="status-box">
-        <div class="status-label">Status</div>
-        <div class="status-value" id="status">Initializing camera...</div>
-      </div>
+</div>
 
-      <div id="result-container">
-        <div class="status-label" id="result-label">Decoded Content</div>
-        <div id="text-result">
-          <textarea id="result" readonly></textarea>
-        </div>
-        <div id="file-result" class="file-result" style="display:none">
-          <div class="file-result-icon">📄</div>
-          <div class="file-result-name" id="file-result-name"></div>
-          <div class="file-result-size" id="file-result-size"></div>
-        </div>
-      </div>
+<!-- ══════════════ Scripts ══════════════ -->
+<script src="libs/pako.min.js"></script>
+<script src="libs/compress.js"></script>
+<script src="libs/jsQR.js"></script>
+<script type="module" src="app.js"></script>
 
-      <button id="copy-btn" class="btn btn-success" style="display: none;">
-        Copy to Clipboard
-      </button>
+<script>
+  // Service worker registration.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
 
-      <button id="download-btn" class="btn btn-success" style="display: none;">
-        Download File
-      </button>
+  // Tab switching (plain global, not module)
+  function switchTab(name) {
+    document.getElementById('tab-encode').classList.toggle('active', name === 'encode');
+    document.getElementById('tab-decode').classList.toggle('active', name === 'decode');
+    document.getElementById('panel-encode').classList.toggle('active', name === 'encode');
+    document.getElementById('panel-decode').classList.toggle('active', name === 'decode');
+    window.dispatchEvent(new CustomEvent('qram-tab', { detail: name }));
+  }
+  // Start on decode tab.
+  switchTab('decode');
+</script>
 
-      <button id="save-btn" class="btn btn-success" style="display: none;">
-        Save as File
-      </button>
-
-      <button id="reset-btn" class="btn btn-secondary">
-        Reset &amp; Scan Again
-      </button>
-    </div><!-- /#panel-decode -->
-
-  </div><!-- /.container -->
-
-  <script src="./app.js"></script>
 </body>
 </html>

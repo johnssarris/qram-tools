@@ -1,37 +1,39 @@
-// Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-v7';
-const ASSETS = [
+/**
+ * sw.js — Service worker for QRAM PWA.
+ * Cache-first strategy; bumped version triggers cache refresh.
+ */
+
+const CACHE   = 'qram-v1';
+const ASSETS  = [
   './',
   './index.html',
-  './manifest.json',
-  './libs/qram.min.js',
-  './libs/jsQR.js',
-  './libs/pako.min.js',
-  './libs/qram-compress.js',
-  './libs/qrcode.min.js',
-  './libs/qram-utils.js',
-  './libs/qram-scan.js',
   './app.js',
+  './manifest.json',
+  './libs/pako.min.js',
+  './libs/compress.js',
+  './libs/jsQR.js',
+  './libs/pkg/qram_core.js',
+  './libs/pkg/qram_core_bg.wasm',
 ];
 
-self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(ASSETS))
-      .then(() => self.skipWaiting())
+self.addEventListener('install', e => {
+  e.waitUntil(
+    caches.open(CACHE).then(c => c.addAll(ASSETS))
   );
+  self.skipWaiting();
 });
 
-self.addEventListener('activate', event => {
-  event.waitUntil(
+self.addEventListener('activate', e => {
+  e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
+      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+    )
   );
+  self.clients.claim();
 });
 
-self.addEventListener('fetch', event => {
-  event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+self.addEventListener('fetch', e => {
+  e.respondWith(
+    caches.match(e.request).then(cached => cached || fetch(e.request))
   );
 });

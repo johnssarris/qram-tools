@@ -1,0 +1,3 @@
+qram-core/target/
+libs/pkg/package.json
+libs/pkg/*.d.ts

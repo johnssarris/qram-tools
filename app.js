@@ -1,788 +1,525 @@
-    // ── Zone A: Page-tab controller ───────────────────────────────────────
-    const pageTabs = (() => {
-      const tabs     = document.querySelectorAll('.page-tab');
-      const panelEnc = document.getElementById('panel-encode');
-      const panelDec = document.getElementById('panel-decode');
+/**
+ * app.js — QRAM: animated QR-code file/text transfer using a Rust WASM LT fountain codec.
+ *
+ * Packet wire format (16-byte header):
+ *   bytes  0-3  : run_id     (u32 big-endian)  — unique per session
+ *   bytes  4-7  : k          (u32 big-endian)  — number of source blocks
+ *   bytes  8-11 : orig_len   (u32 big-endian)  — original payload length
+ *   bytes 12-15 : seq_num    (u32 big-endian)  — packet sequence index
+ *   bytes 16+   : payload    (block_size bytes) — XOR of selected source blocks
+ *
+ * File-transfer envelope (wraps raw bytes when sending a file):
+ *   bytes 0-4  : 'QRAMF' magic (0x51 0x52 0x41 0x4D 0x46)
+ *   bytes 5-6  : filename length, big-endian uint16
+ *   bytes 7+N  : UTF-8 filename
+ *   bytes 7+N+ : file payload
+ */
 
-      let _onEncDeactivate = null;
-      let _onDecActivate   = null;
-      let _onDecDeactivate = null;
-      let current = 'decode';
+import initQramCore, { LTEncoder, LTDecoder, qr_generate } from './libs/pkg/qram_core.js';
 
-      function switchTo(page) {
-        if (page === current) return;
-        if (current === 'encode') { _onEncDeactivate && _onEncDeactivate(); }
-        else                      { _onDecDeactivate && _onDecDeactivate(); }
-        panelEnc.style.display = page === 'encode' ? '' : 'none';
-        panelDec.style.display = page === 'decode' ? '' : 'none';
-        tabs.forEach(t => t.classList.toggle('active', t.dataset.page === page));
-        current = page;
-        if (page === 'decode') { _onDecActivate && _onDecActivate(); }
-      }
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-      tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.page)));
+const FILE_MAGIC    = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]); // 'QRAMF'
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const HEADER_SIZE   = 16;
 
-      return {
-        onEncodeDeactivate: fn => { _onEncDeactivate = fn; },
-        onDecodeActivate:   fn => { _onDecActivate   = fn; },
-        onDecodeDeactivate: fn => { _onDecDeactivate = fn; },
-      };
-    })();
+// ── Utilities ─────────────────────────────────────────────────────────────────
 
-    // ── Zone B: Encoder IIFE ──────────────────────────────────────────────
-    (() => {
-      const elTxt      = document.getElementById('txt');
-      const elFPS      = document.getElementById('fps');
-      const elBlk      = document.getElementById('blk');
-      const elAutoBlk  = document.getElementById('auto-blk');
-      const elCompress = document.getElementById('compress');
-      const elStart    = document.getElementById('start');
-      const elStop     = document.getElementById('stop');
-      const elStats    = document.getElementById('stats');
-      const elErr      = document.getElementById('err');
-      const elCanvas   = document.getElementById('qr');
-      const elDataSize = document.getElementById('data-size');
-      const elDropZone = document.getElementById('drop-zone');
-      const elFileInput     = document.getElementById('file-input');
-      const elTextInput     = document.getElementById('text-input');
-      const elFileInputArea = document.getElementById('file-input-area');
-      const modeTabs = document.querySelectorAll('.mode-tab');
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1048576).toFixed(2)} MB`;
+}
 
-      let running = false;
-      let cancelRequested = false;
-      let reader = null;
-      let stream = null;
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-      let currentMode = 'text';
-      let loadedFile = null;
+function randomU32() {
+  const buf = new Uint8Array(4);
+  crypto.getRandomValues(buf);
+  return new DataView(buf.buffer).getUint32(0, false);
+}
 
-      const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+/** Build a file-transfer payload from a filename and raw file bytes. */
+function buildFilePayload(name, fileBytes) {
+  const nameBytes = new TextEncoder().encode(name);
+  const out = new Uint8Array(5 + 2 + nameBytes.length + fileBytes.length);
+  out.set(FILE_MAGIC, 0);
+  new DataView(out.buffer).setUint16(5, nameBytes.length, false);
+  out.set(nameBytes, 7);
+  out.set(fileBytes, 7 + nameBytes.length);
+  return out;
+}
 
-      // --- Mode switching ---
-      function handleModeSwitch(mode) {
-        if (running) return;
-        if (mode === currentMode) return;
-        currentMode = mode;
-        modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-        elTextInput.style.display = mode === 'text' ? '' : 'none';
-        elFileInputArea.style.display = mode === 'file' ? '' : 'none';
-        updateDataSize();
-      }
+/** Parse a file-transfer payload. Returns { name, data } or null. */
+function parseFilePayload(bytes) {
+  if (bytes.length < 7) return null;
+  for (let i = 0; i < 5; i++) if (bytes[i] !== FILE_MAGIC[i]) return null;
+  const view    = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const nameLen = view.getUint16(5, false);
+  if (7 + nameLen > bytes.length) return null;
+  const name = new TextDecoder().decode(bytes.subarray(7, 7 + nameLen));
+  return { name, data: bytes.subarray(7 + nameLen) };
+}
 
-      modeTabs.forEach(tab => {
-        tab.addEventListener('click', () => handleModeSwitch(tab.dataset.mode));
-      });
+/**
+ * Render a QR matrix (from qr_generate) to a canvas element.
+ * The matrix is [size: u32 LE, modules: size*size bytes].
+ */
+function renderQR(canvas, matrix, scale) {
+  const view  = new DataView(matrix.buffer, matrix.byteOffset, matrix.byteLength);
+  const size  = view.getUint32(0, true);
+  const mods  = matrix.subarray(4);
+  const QUIET = 4;
+  const dim   = (size + QUIET * 2) * scale;
 
-      // --- File handling ---
-      function handleFile(file) {
-        if (!file) return;
-        if (file.size > 5000 * 1024) {
-          showError('File too large. Keep files under 100 KB for practical QR transfer.');
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = () => {
-          loadedFile = {
-            name: file.name,
-            data: new Uint8Array(reader.result)
-          };
-          elDropZone.classList.add('has-file');
-          elDropZone.innerHTML = '';
-          const _icon = Object.assign(document.createElement('div'), { className: 'drop-icon', textContent: '\u2705' });
-          const _info = Object.assign(document.createElement('div'), { className: 'file-info', textContent: file.name });
-          const _size = Object.assign(document.createElement('div'), { className: 'file-size', textContent: formatBytes(file.size) });
-          const _hint = Object.assign(document.createElement('div'), { className: 'drop-hint', textContent: 'Click or drop to replace' });
-          elDropZone.append(_icon, _info, _size, _hint);
-          updateDataSize();
-        };
-        reader.onerror = () => showError('Failed to read file.');
-        reader.readAsArrayBuffer(file);
-      }
-
-      elDropZone.addEventListener('click', () => elFileInput.click());
-
-      elDropZone.addEventListener('dragover', e => {
-        e.preventDefault();
-        elDropZone.classList.add('active');
-      });
-
-      elDropZone.addEventListener('dragleave', () => {
-        elDropZone.classList.remove('active');
-      });
-
-      elDropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        elDropZone.classList.remove('active');
-        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
-      });
-
-      elFileInput.addEventListener('change', () => {
-        if (elFileInput.files.length > 0) handleFile(elFileInput.files[0]);
-      });
-
-      elTxt.addEventListener('dragover', e => {
-        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
-      });
-
-      elTxt.addEventListener('drop', e => {
-        if (e.dataTransfer.files.length > 0) {
-          e.preventDefault();
-          currentMode = 'file';
-          modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'file'));
-          elTextInput.style.display = 'none';
-          elFileInputArea.style.display = '';
-          handleFile(e.dataTransfer.files[0]);
-        }
-      });
-
-      // --- Auto block size ---
-      function autoBlockSize(dataLength) {
-        if (dataLength <= 50)     return 50;
-        if (dataLength <= 600)    return dataLength;
-        if (dataLength <= 1200)   return Math.ceil(dataLength / 2);
-        if (dataLength <= 5000)   return 400;
-        if (dataLength <= 20000)  return 500;
-        if (dataLength <= 100000) return 600;
-        return 700;
-      }
-
-      elAutoBlk.addEventListener('change', () => {
-        elBlk.disabled = elAutoBlk.checked;
-        if (elAutoBlk.checked) updateDataSize();
-      });
-
-      elBlk.disabled = elAutoBlk.checked;
-      elTxt.addEventListener('input', updateDataSize);
-
-      function updateDataSize() {
-        let size = 0;
-        if (currentMode === 'text') {
-          const txt = elTxt.value || '';
-          if (txt) size = new TextEncoder().encode(txt).length;
-        } else if (loadedFile) {
-          const nameBytes = new TextEncoder().encode(loadedFile.name).length;
-          size = FILE_MAGIC.length + 2 + nameBytes + loadedFile.data.length;
-        }
-
-        if (size > 0) {
-          elDataSize.textContent = `Data: ${formatBytes(size)}`;
-          if (elAutoBlk.checked) elBlk.value = autoBlockSize(size);
-        } else {
-          elDataSize.textContent = '';
-        }
-      }
-
-      // --- Helpers ---
-      const { formatBytes } = qramUtils;
-
-      function showError(msg, errObj) {
-        const extra = errObj ? ('\n\n' + (errObj.stack || String(errObj))) : '';
-        elErr.textContent = String(msg) + extra;
-        elErr.style.display = 'block';
-        console.error(msg, errObj);
-      }
-
-      function clearError() {
-        elErr.textContent = '';
-        elErr.style.display = 'none';
-      }
-
-      const encSetup = document.getElementById('enc-setup');
-      const encLive  = document.getElementById('enc-live');
-
-      function setEncodeView(isRunning) {
-        encSetup.style.display = isRunning ? 'none' : '';
-        encLive.style.display  = isRunning ? '' : 'none';
-        if (isRunning) {
-          elCanvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }
-
-      function clearCanvas() {
-        const ctx = elCanvas.getContext('2d');
-        ctx.save();
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.clearRect(0, 0, elCanvas.width, elCanvas.height);
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, elCanvas.width, elCanvas.height);
-        ctx.restore();
-      }
-
-      // --- Build payload ---
-      function buildPayload() {
-        if (currentMode === 'text') {
-          const txt = elTxt.value || '';
-          if (!txt.trim()) return null;
-          return new TextEncoder().encode(txt);
-        } else {
-          if (!loadedFile) return null;
-          const nameBytes = new TextEncoder().encode(loadedFile.name);
-          const totalLen = FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
-          const payload = new Uint8Array(totalLen);
-          let offset = 0;
-          payload.set(FILE_MAGIC, offset);
-          offset += FILE_MAGIC.length;
-          payload[offset]     = (nameBytes.length >> 8) & 0xFF;
-          payload[offset + 1] = nameBytes.length & 0xFF;
-          offset += 2;
-          payload.set(nameBytes, offset);
-          offset += nameBytes.length;
-          payload.set(loadedFile.data, offset);
-          return payload;
-        }
-      }
-
-      // --- Start/Stop ---
-      async function start() {
-        if (running) return;
-        clearError();
-        clearCanvas();
-
-        if (!window.qram)   { showError("qram library didn't load. Check network / content blockers / file:// restrictions."); return; }
-        if (!window.QRCode) { showError("qrcode library didn't load. Check network / content blockers / file:// restrictions."); return; }
-
-        const data = buildPayload();
-        if (!data || data.length === 0) {
-          alert(currentMode === 'text' ? 'Enter text' : 'Select a file');
-          return;
-        }
-
-        let sendData = data;
-        if (elCompress.checked && window.qramCompress) {
-          const cr = await qramCompress.maybeCompress(data);
-          sendData = cr.data;
-          if (cr.compressed) {
-            elDataSize.textContent = `Data: ${formatBytes(cr.originalSize)} \u2192 ${formatBytes(cr.sentSize)} (gz)`;
-          } else {
-            elDataSize.textContent = `Data: ${formatBytes(cr.sentSize)} (no gz)`;
-          }
-        }
-
-        const fps       = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
-        const blockSize = Math.max(50, Math.min(20000, parseInt(elBlk.value, 10) || 300));
-        const delay     = 1000 / fps;
-
-        let enc;
-        try {
-          enc = new qram.Encoder({ data: sendData, blockSize });
-        } catch (e) {
-          showError('Failed to create qram.Encoder (bad options?)', e);
-          return;
-        }
-
-        try {
-          stream = await enc.createReadableStream();
-          reader = stream.getReader();
-        } catch (e) {
-          showError('Failed to create/read QRAM stream.', e);
-          return;
-        }
-
-        running = true;
-        cancelRequested = false;
-        setEncodeView(true);
-
-        let n = 0;
-        const blocks = Math.ceil(sendData.length / blockSize);
-        const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
-        elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
-
-        try {
-          while (!cancelRequested) {
-            const { value: pkt, done } = await reader.read();
-            if (done) break;
-
-            try {
-              await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
-                width: 350,
-                margin: 1,
-                errorCorrectionLevel: 'L'
-              });
-            } catch (e) {
-              showError('QR render error (QRCode.toCanvas failed).', e);
-              break;
-            }
-
-            n++;
-            elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks, packet #${n}`;
-            await new Promise(ok => setTimeout(ok, delay));
-          }
-        } catch (e) {
-          showError('Streaming loop error.', e);
-        } finally {
-          try { await reader?.cancel(); } catch (e) {}
-          try { await stream?.cancel?.(); } catch (e) {}
-          reader = null;
-          stream = null;
-          running = false;
-          cancelRequested = false;
-          setEncodeView(false);
-        }
-      }
-
-      function stop() {
-        cancelRequested = true;
-        try { reader?.cancel(); } catch (e) {}
-        try { stream?.cancel?.(); } catch (e) {}
-      }
-
-      elStart.addEventListener('click', start);
-      elStop.addEventListener('click', stop);
-
-      clearCanvas();
-      updateDataSize();
-
-      // Stop encode cleanly when user switches to Decode tab
-      pageTabs.onEncodeDeactivate(() => {
-        if (running) elStop.click();
-      });
-    })();
-
-    // ── Zone C: Decoder ───────────────────────────────────────────────────
-    // Elements
-    const video          = document.getElementById('video');
-    const canvas         = document.getElementById('canvas');
-    const ctx            = canvas.getContext('2d', { willReadFrequently: true });
-    const statusEl       = document.getElementById('status');
-    const progressFill   = document.getElementById('progress-fill');
-    const blocksReceivedEl  = document.getElementById('blocks-received');
-    const blocksTotalEl     = document.getElementById('blocks-total');
-    const packetsScannedEl  = document.getElementById('packets-scanned');
-    const speedDisplayEl    = document.getElementById('speed-display');
-    const resultContainer   = document.getElementById('result-container');
-    const resultLabel       = document.getElementById('result-label');
-    const textResult        = document.getElementById('text-result');
-    const fileResult        = document.getElementById('file-result');
-    const fileResultName    = document.getElementById('file-result-name');
-    const fileResultSize    = document.getElementById('file-result-size');
-    const resultEl     = document.getElementById('result');
-    const copyBtn      = document.getElementById('copy-btn');
-    const downloadBtn  = document.getElementById('download-btn');
-    const saveBtn      = document.getElementById('save-btn');
-    const resetBtn     = document.getElementById('reset-btn');
-    const errorMsg     = document.getElementById('error-msg');
-    const scanIndicator = document.getElementById('scan-indicator');
-
-    // State
-    let scanning = true;
-    let cameraStream = null;
-    let decoder = null;
-    let decodePromise = null;
-    let packetsScanned = 0;
-    let flashTimeout = null;
-    let lastPacketSignature = null;
-    let speedInterval = null;
-    let pendingProgressUpdate = false;
-    // Generation counter — incremented each time initCamera starts a new scan
-    // loop. The loop closure captures its own gen; stale callbacks bail out
-    // when scanGen advances, preventing double-loop races on reset/reinit.
-    let scanGen = 0;
-
-    // Speed tracking
-    let firstPacketTime = null;
-    let lastReceivedBlocks = 0;
-    let lastTotalBlocks = 0;
-    let totalBytesReceived = 0;
-
-    // File transfer state
-    let decodedFileData = null;
-
-    // File protocol magic: "QRAMF"
-    const FILE_MAGIC = [0x51, 0x52, 0x41, 0x4D, 0x46];
-
-    // --- Helpers ---
-    const { formatBytes, downloadBlob } = qramUtils;
-
-    function formatSpeed(bytesPerSec) {
-      if (bytesPerSec < 1024) return bytesPerSec.toFixed(0) + ' B/s';
-      return (bytesPerSec / 1024).toFixed(1) + ' KB/s';
-    }
-
-    function isFileTransfer(data) {
-      if (data.length < 8) return false;
-      for (let i = 0; i < FILE_MAGIC.length; i++) {
-        if (data[i] !== FILE_MAGIC[i]) return false;
-      }
-      return true;
-    }
-
-    function parseFileTransfer(data) {
-      let offset = FILE_MAGIC.length;
-      const nameLen = (data[offset] << 8) | data[offset + 1];
-      offset += 2;
-      if (offset + nameLen > data.length) return null;
-      const nameBytes = data.slice(offset, offset + nameLen);
-      const fileName = new TextDecoder().decode(nameBytes);
-      offset += nameLen;
-      const fileData = data.slice(offset);
-      return { fileName, fileData };
-    }
-
-    function guessMimeType(fileName) {
-      const ext = fileName.split('.').pop().toLowerCase();
-      const types = {
-        txt: 'text/plain', json: 'application/json', xml: 'text/xml',
-        html: 'text/html', css: 'text/css', js: 'text/javascript',
-        yaml: 'text/yaml', yml: 'text/yaml', toml: 'text/plain',
-        ini: 'text/plain', cfg: 'text/plain', conf: 'text/plain',
-        sh: 'text/x-shellscript', py: 'text/x-python',
-        key: 'application/octet-stream', pem: 'application/x-pem-file',
-        pub: 'text/plain', csv: 'text/csv', md: 'text/markdown',
-        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-        gif: 'image/gif', svg: 'image/svg+xml', pdf: 'application/pdf',
-        zip: 'application/zip', gz: 'application/gzip',
-        tar: 'application/x-tar',
-      };
-      return types[ext] || 'application/octet-stream';
-    }
-
-    // --- Completion feedback ---
-    function playCompletionChime() {
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playNote(freq, startTime, duration) {
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          gain.gain.setValueAtTime(0.15, startTime);
-          gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
-          osc.start(startTime);
-          osc.stop(startTime + duration);
-        }
-        const now = audioCtx.currentTime;
-        playNote(659, now, 0.15);
-        playNote(880, now + 0.12, 0.2);
-        playNote(1047, now + 0.24, 0.3);
-      } catch (e) {}
-    }
-
-    function triggerCompletionFeedback() {
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
-      playCompletionChime();
-    }
-
-    // --- Speed tracking ---
-    function updateSpeed() {
-      if (!firstPacketTime || lastTotalBlocks === 0) return;
-      const elapsed = (Date.now() - firstPacketTime) / 1000;
-      if (elapsed < 0.5) return;
-      const pps = packetsScanned / elapsed;
-      const kbps = formatSpeed(totalBytesReceived / elapsed);
-      speedDisplayEl.textContent = `${pps.toFixed(1)} pkt/s\n${kbps}`;
-    }
-
-    function startSpeedTracking() {
-      if (speedInterval) return;
-      speedInterval = setInterval(updateSpeed, 500);
-    }
-
-    function stopSpeedTracking() {
-      if (speedInterval) {
-        clearInterval(speedInterval);
-        speedInterval = null;
+  canvas.width  = dim;
+  canvas.height = dim;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, dim, dim);
+  ctx.fillStyle = '#000';
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if (mods[y * size + x]) {
+        ctx.fillRect((x + QUIET) * scale, (y + QUIET) * scale, scale, scale);
       }
     }
+  }
+}
 
-    // Initialize
-    async function init() {
-      scanning = true;
+/** Crop video frame for scanning: centre 85% of the visible area. */
+function cropVideoFrame(video, canvas, ctx) {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return false;
+  const rect = video.getBoundingClientRect();
+  const ew = rect.width, eh = rect.height;
+  if (!ew || !eh) return false;
 
-      decoder = new qram.Decoder();
-      decodePromise = decoder.decode();
+  // object-fit: cover
+  let sx, sy, sw, sh;
+  if (vw / vh > ew / eh) {
+    sh = vh; sw = vh * ew / eh;
+    sx = (vw - sw) / 2; sy = 0;
+  } else {
+    sw = vw; sh = vw * eh / ew;
+    sx = 0; sy = (vh - sh) / 2;
+  }
 
-      decodePromise.then(result => {
-        onComplete(result).catch(err => {
-          showError('Decode error: ' + err.message);
-        });
-      }).catch(err => {
-        if (err.name !== 'AbortError') {
-          showError('Decode error: ' + err.message);
-        }
-      });
+  const crop = 0.85;
+  const cw = sw * crop, ch = sh * crop;
+  const cx = sx + (sw - cw) / 2, cy = sy + (sh - ch) / 2;
 
-      await initCamera();
-    }
+  canvas.width = canvas.height = 480;
+  ctx.drawImage(video, cx, cy, cw, ch, 0, 0, 480, 480);
+  return true;
+}
 
-    // Initialize camera
-    async function initCamera() {
-      try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', frameRate: { ideal: 30 }, height: { ideal: 1080 } },
-        });
-        video.srcObject = cameraStream;
-        video.setAttribute('playsinline', true);
+/** Request the next unique video frame (prefer rVFC, fall back to rAF). */
+function nextFrame(video, cb) {
+  if ('requestVideoFrameCallback' in video) {
+    video.requestVideoFrameCallback(cb);
+  } else {
+    requestAnimationFrame(cb);
+  }
+}
 
-        await new Promise((resolve, reject) => {
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
-            resolve();
-          } else {
-            video.addEventListener('loadedmetadata', resolve, { once: true });
-            video.addEventListener('error', reject, { once: true });
-          }
-        });
+/** Cheap 32-bit packet fingerprint for duplicate detection. */
+function packetFingerprint(data) {
+  let h = 0x811c9dc5 | 0;
+  for (let i = 0; i < data.length; i++) {
+    h = Math.imul(h ^ data[i], 0x01000193) | 0;
+  }
+  return h;
+}
 
-        await video.play();
-        statusEl.textContent = 'Point camera at animated QR...';
-
-        // Advance generation so any leftover callbacks from a previous loop
-        // exit cleanly, then start the new loop.
-        const gen = ++scanGen;
-        qramScan.scheduleFrame(video, () => scanFrame(gen));
-      } catch (err) {
-        scanning = false;
-        if (decoder) decoder.cancel();
-        showError('Camera access denied. Please allow camera permissions.');
-        console.error(err);
-      }
-    }
-
-    function showError(msg) {
-      errorMsg.textContent = msg;
-      errorMsg.classList.add('show');
-    }
-
-    function hideError() {
-      errorMsg.classList.remove('show');
-    }
-
-    function flashIndicator() {
-      scanIndicator.classList.add('flash');
-      if (flashTimeout) clearTimeout(flashTimeout);
-      flashTimeout = setTimeout(() => scanIndicator.classList.remove('flash'), 150);
-    }
-
-    function scheduleProgressUpdate() {
-      if (pendingProgressUpdate) return;
-      pendingProgressUpdate = true;
-      requestAnimationFrame(() => {
-        pendingProgressUpdate = false;
-        const minFrames = lastTotalBlocks > 0 ? lastTotalBlocks : '?';
-        packetsScannedEl.textContent = `${packetsScanned} / ${minFrames}`;
-        blocksReceivedEl.textContent = lastReceivedBlocks;
-        blocksTotalEl.textContent    = lastTotalBlocks;
-        const pct = lastTotalBlocks > 0
-          ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100)
-          : 0;
-        progressFill.style.width = `${pct}%`;
-        statusEl.textContent = `Receiving: ${lastReceivedBlocks}/${lastTotalBlocks} blocks`;
-      });
-    }
-
-    // Scan frame — aligned to unique video frames via rVFC (rAF fallback).
-    // `gen` is captured from scanGen at loop-start; stale closures bail out
-    // when scanGen advances (reset/reinit), preventing double loops.
-    async function scanFrame(gen) {
-      if (!scanning || gen !== scanGen) return;
-
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        // Crop to the visible 85% scan region and downscale to 480px.
-        const { width, height } = qramScan.cropCapture(video, canvas, ctx);
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const code = jsQR(imageData.data, width, height, { inversionAttempts: 'dontInvert' });
-
-        if (code && code.binaryData && code.binaryData.length > 0) {
-          try {
-            const packetData = new Uint8Array(code.binaryData);
-
-            // Skip duplicate consecutive frames (encoder FPS << scan FPS).
-            const len = packetData.length;
-            const step = Math.max(1, len >> 5);
-            let sig = len;
-            for (let i = 0; i < len; i += step) sig = (sig * 31 + packetData[i]) | 0;
-
-            if (sig !== lastPacketSignature) {
-              lastPacketSignature = sig;
-
-              const progress = await decoder.enqueue(packetData);
-              packetsScanned++;
-              totalBytesReceived += packetData.length;
-              flashIndicator();
-
-              if (!firstPacketTime) {
-                firstPacketTime = Date.now();
-                startSpeedTracking();
-                hideError();
-              }
-
-              if (progress) {
-                lastReceivedBlocks = progress.receivedBlocks;
-                lastTotalBlocks    = progress.totalBlocks;
-                scheduleProgressUpdate();
-              }
-            }
-          } catch (err) {
-            // Ignore invalid packets silently
-          }
-        }
-      }
-
-      if (scanning && gen === scanGen) {
-        qramScan.scheduleFrame(video, () => scanFrame(gen));
-      }
-    }
-
-    // Handle completion
-    async function onComplete(result) {
-      scanning = false;
-      stopSpeedTracking();
-
-      let data     = result.data;
-      let wireSize = data.length;
-
-      if (window.qramCompress) {
-        const dr = await qramCompress.maybeDecompress(data);
-        data     = dr.data;
-        wireSize = dr.wireSize;
-      }
-
-      if (firstPacketTime) {
-        const elapsed = (Date.now() - firstPacketTime) / 1000;
-        if (elapsed > 0) {
-          const pps = packetsScanned / elapsed;
-          speedDisplayEl.textContent = `${pps.toFixed(1)} pkt/s\n${formatSpeed(wireSize / elapsed)}`;
-        }
-      }
-
-      if (isFileTransfer(data)) {
-        const parsed = parseFileTransfer(data);
-        if (parsed) {
-          decodedFileData = parsed;
-          handleFileResult(parsed, data.length);
-          return;
-        }
-      }
-
-      handleTextResult(data);
-    }
-
-    function handleTextResult(data) {
-      const text = new TextDecoder().decode(data);
-      resultLabel.textContent    = 'Decoded Content';
-      textResult.style.display   = '';
-      fileResult.style.display   = 'none';
-      resultEl.value             = text;
-      resultContainer.classList.add('show');
-      copyBtn.style.display      = 'block';
-      saveBtn.style.display      = 'block';
-      downloadBtn.style.display  = 'none';
-      statusEl.textContent       = `Complete! ${formatBytes(data.length)} received.`;
-      progressFill.style.width   = '100%';
-      triggerCompletionFeedback();
-      stopCamera();
-    }
-
-    function handleFileResult(parsed, totalBytes) {
-      resultLabel.textContent         = 'Received File';
-      textResult.style.display        = 'none';
-      fileResult.style.display        = '';
-      fileResultName.textContent      = parsed.fileName;
-      fileResultSize.textContent      = formatBytes(parsed.fileData.length);
-      resultContainer.classList.add('show');
-      downloadBtn.style.display       = 'block';
-      copyBtn.style.display           = 'none';
-      saveBtn.style.display           = 'none';
-      statusEl.textContent = `Complete! File "${parsed.fileName}" (${formatBytes(parsed.fileData.length)}) received.`;
-      progressFill.style.width        = '100%';
-      triggerCompletionFeedback();
-      stopCamera();
-    }
-
-    function stopCamera() {
-      if (cameraStream) {
-        cameraStream.getTracks().forEach(track => track.stop());
-        cameraStream = null;
-      }
-    }
-
-    // Copy to clipboard
-    copyBtn.addEventListener('click', () => {
-      qramUtils.copyToClipboard(resultEl.value, copyBtn, 'Copy to Clipboard', 'Copied!', 2000);
+/** Play a three-note completion chime. */
+function chime() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [659, 880, 1047].forEach((freq, i) => {
+      const osc  = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.connect(gain); gain.connect(ac.destination);
+      osc.type = 'sine'; osc.frequency.value = freq;
+      const t = ac.currentTime + i * 0.18;
+      gain.gain.setValueAtTime(0.3, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      osc.start(t); osc.stop(t + 0.4);
     });
+  } catch { /* audio not available */ }
+}
 
-    // Download file (for file transfers)
-    downloadBtn.addEventListener('click', () => {
-      if (!decodedFileData) return;
-      const mime = guessMimeType(decodedFileData.fileName);
-      downloadBlob(new Blob([decodedFileData.fileData], { type: mime }), decodedFileData.fileName);
+const $ = id => document.getElementById(id);
+
+// ── Application ───────────────────────────────────────────────────────────────
+
+const app = (() => {
+  let wasmReady   = false;
+  let inputMode   = 'text';      // 'text' | 'file'
+  let pendingFile = null;        // { name: string, bytes: Uint8Array } | null
+
+  // Encoder state
+  let encoder    = null;
+  let encTimer   = null;
+  let encRunning = false;
+  let encFrame   = 0;
+
+  // Decoder state
+  let decoder    = null;
+  let decRunId   = null;        // run_id of the active session
+  let decStream  = null;         // MediaStream
+  let decCanvas  = null;        // off-screen canvas
+  let decCtx     = null;
+  let decActive  = false;
+  let decFrames  = 0;
+  let lastFP     = null;        // last packet fingerprint
+  let decStartMs   = 0;
+  let decPkts      = 0;
+  let decOrigLen   = 0;         // original payload length from packet header
+  let decBlockSize = 0;         // block_size for KB/s estimate
+  let decResult  = null;        // { isFile, name?, data } after completion
+
+  // ── Initialisation ──
+
+  async function setup() {
+    decCanvas = document.createElement('canvas');
+    decCtx    = decCanvas.getContext('2d');
+    await loadWasm();
+    window.addEventListener('qram-tab', e => {
+      if (e.detail === 'decode') activateDecode();
+      else deactivateDecode();
     });
+  }
 
-    // Save as file (for text transfers)
-    saveBtn.addEventListener('click', () => {
-      downloadBlob(new Blob([resultEl.value], { type: 'text/plain' }), 'qram-transfer.txt');
-    });
+  async function loadWasm() {
+    try {
+      await initQramCore();
+      wasmReady = true;
+    } catch (err) {
+      showError('WASM init failed: ' + err.message);
+    }
+  }
 
-    // Reset
-    function handleReset() {
-      scanning = false;
-      stopSpeedTracking();
-      if (decoder) decoder.cancel();
-      stopCamera();
+  // ── Tab lifecycle ──
 
-      packetsScanned = 0;
-      totalBytesReceived = 0;
-      lastPacketSignature = null;
-      firstPacketTime = null;
-      lastReceivedBlocks = 0;
-      lastTotalBlocks = 0;
-      decodedFileData = null;
-      pendingProgressUpdate = false;
+  function activateDecode() {
+    decActive = true;
+    startCamera();
+  }
 
-      resultContainer.classList.remove('show');
-      textResult.style.display   = '';
-      fileResult.style.display   = 'none';
-      copyBtn.style.display      = 'none';
-      downloadBtn.style.display  = 'none';
-      saveBtn.style.display      = 'none';
-      progressFill.style.width   = '0%';
-      blocksReceivedEl.textContent  = '0';
-      blocksTotalEl.textContent     = '?';
-      packetsScannedEl.textContent  = '0 / ?';
-      speedDisplayEl.textContent    = '--';
-      hideError();
+  function deactivateDecode() {
+    decActive = false;
+    stopCamera();
+  }
 
-      init();
+  // ── Input mode ──
+
+  function setInputMode(mode) {
+    inputMode = mode;
+    $('text-input-area').style.display  = mode === 'text' ? '' : 'none';
+    $('file-input-area').style.display  = mode === 'file' ? '' : 'none';
+    $('mode-text').classList.toggle('active', mode === 'text');
+    $('mode-file').classList.toggle('active', mode === 'file');
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    $('drop-zone').classList.remove('drag-over');
+    if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+  }
+
+  function handleFileSelect(e) {
+    if (e.target.files[0]) loadFile(e.target.files[0]);
+  }
+
+  function loadFile(file) {
+    if (file.size > MAX_FILE_SIZE) {
+      showError(`File too large: ${formatBytes(file.size)} (max 5 MB)`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      pendingFile = { name: file.name, bytes: new Uint8Array(ev.target.result) };
+      $('drop-zone').classList.add('has-file');
+      $('drop-label').textContent = `${file.name}  (${formatBytes(file.size)})`;
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // ── Encoder ──
+
+  async function startEncoder() {
+    if (!wasmReady) { showError('WASM not ready.'); return; }
+    hideError();
+
+    let raw;
+    if (inputMode === 'text') {
+      const t = $('text-in').value;
+      if (!t.trim()) { showError('Enter some text first.'); return; }
+      raw = new TextEncoder().encode(t);
+    } else {
+      if (!pendingFile) { showError('Choose a file first.'); return; }
+      raw = buildFilePayload(pendingFile.name, pendingFile.bytes);
     }
 
-    resetBtn.addEventListener('click', handleReset);
-
-    // Register service worker for offline PWA support
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    // Optionally compress.
+    let payload = raw;
+    if ($('chk-compress').checked) {
+      payload = await qramCompress.compress(raw);
     }
 
-    // ── Lazy camera: start when Decode tab is activated ───────────────────
-    // Decode is the default active tab, so we also call init() immediately below.
-    let _decoderStarted = false;
+    const blockSize = parseInt($('sel-block').value, 10);
+    const ecLevel   = parseInt($('sel-ec').value, 10);
+    const fps       = parseInt($('sel-fps').value, 10);
+    const runId     = randomU32();
 
-    pageTabs.onDecodeActivate(() => {
-      if (!_decoderStarted) {
-        _decoderStarted = true;
-        init();
-        return;
+    encoder    = new LTEncoder(payload, blockSize, runId);
+    encRunning = true;
+    encFrame   = 0;
+
+    const k = encoder.block_count();
+    $('btn-start').disabled = true;
+    $('btn-stop').disabled  = false;
+    $('qr-wrap').classList.add('active');
+    $('enc-status').textContent = `0 frames · ${k} blocks · ${formatBytes(payload.length)}`;
+
+    const canvas   = $('qr-canvas');
+    const interval = Math.round(1000 / fps);
+
+    function tick() {
+      if (!encRunning) return;
+      const pkt = encoder.next_packet();
+      const mat = qr_generate(pkt, ecLevel);
+
+      if (mat.length > 4) {
+        const view = new DataView(mat.buffer, mat.byteOffset, mat.byteLength);
+        const qrN  = view.getUint32(0, true);
+        // Choose scale so QR fills ~340 CSS pixels.
+        const QUIET = 4;
+        const scale = Math.max(1, Math.floor(340 / (qrN + QUIET * 2)));
+        renderQR(canvas, mat, scale);
       }
-      // Returning to Decode after switching away: restart only if no result showing
-      const scanDone = resultContainer.classList.contains('show');
-      if (!scanDone) init();
+
+      encFrame++;
+      $('enc-status').textContent = `Frame ${encFrame} · ${k} blocks · ${formatBytes(payload.length)}`;
+      encTimer = setTimeout(tick, interval);
+    }
+
+    tick();
+  }
+
+  function stopEncoder() {
+    encRunning = false;
+    clearTimeout(encTimer);
+    if (encoder) { encoder.free(); encoder = null; }
+    $('btn-start').disabled = false;
+    $('btn-stop').disabled  = true;
+    $('enc-status').textContent = 'Stopped.';
+  }
+
+  // ── Decoder ──
+
+  async function startCamera() {
+    if (decStream) return;
+    try {
+      decStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, frameRate: { ideal: 30 } }
+      });
+      const video = $('video');
+      video.srcObject = decStream;
+      await video.play();
+      resetDecoder();
+      nextFrame(video, scanLoop);
+    } catch (err) {
+      $('dec-status').textContent = 'Camera error: ' + err.message;
+    }
+  }
+
+  function stopCamera() {
+    if (!decStream) return;
+    decStream.getTracks().forEach(t => t.stop());
+    decStream = null;
+    $('video').srcObject = null;
+  }
+
+  function scanLoop() {
+    const video = $('video');
+    if (!decActive || !decStream) return;
+    nextFrame(video, scanLoop);
+
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    if (!cropVideoFrame(video, decCanvas, decCtx)) return;
+
+    const imageData = decCtx.getImageData(0, 0, 480, 480);
+    const code = jsQR(imageData.data, 480, 480, { inversionAttempts: 'dontInvert' });
+    if (!code || !code.binaryData || code.binaryData.length < HEADER_SIZE) return;
+
+    const pkt = new Uint8Array(code.binaryData);
+    const fp  = packetFingerprint(pkt);
+    if (fp === lastFP) return;
+    lastFP = fp;
+
+    decFrames++;
+    $('s-frames').textContent = decFrames;
+
+    // Parse header.
+    const view    = new DataView(pkt.buffer, pkt.byteOffset, pkt.byteLength);
+    const runId   = view.getUint32(0, false);
+    const k       = view.getUint32(4, false);
+    const origLen = view.getUint32(8, false);
+    const blockSize = pkt.length - HEADER_SIZE;
+
+    if (k < 1 || blockSize < 1) return;
+
+    // Bootstrap or reset decoder when a new session is detected.
+    if (!decoder || decRunId !== runId) {
+      if (decoder) decoder.free();
+      decoder      = new LTDecoder(k, blockSize, runId);
+      decRunId     = runId;
+      decOrigLen   = origLen;
+      decBlockSize = blockSize;
+      decStartMs   = Date.now();
+      decPkts      = 0;
+      $('s-total').textContent   = k;
+      $('s-decoded').textContent = '0';
+      // Hide any previous result when a new session starts.
+      $('result-area').style.display = 'none';
+    }
+
+    const done = decoder.push_packet(pkt);
+    decPkts++;
+    updateDecStats();
+    if (done) completeDecode();
+  }
+
+  function updateDecStats() {
+    if (!decoder) return;
+    const dec   = decoder.decoded_count();
+    const total = decoder.block_count();
+
+    $('s-decoded').textContent = dec;
+    $('s-total').textContent   = total;
+
+    const pct = total ? (dec / total) * 100 : 0;
+    $('progress-bar').style.width = pct + '%';
+    $('progress-bar').classList.toggle('done', dec >= total);
+
+    const elapsedS = (Date.now() - decStartMs) / 1000;
+    if (elapsedS > 0.3 && decPkts > 0 && decBlockSize > 0) {
+      const kbps = (decPkts * decBlockSize / 1024) / elapsedS;
+      $('s-speed').textContent = kbps.toFixed(1);
+    }
+
+    $('dec-status').textContent =
+      dec >= total ? 'Reconstructing…' : `${dec} / ${total} blocks`;
+  }
+
+  async function completeDecode() {
+    if (!decoder) return;
+
+    const rawPadded = decoder.get_result(decOrigLen);
+    decoder.free();
+    decoder = null;
+
+    chime();
+    if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+
+    $('progress-bar').style.width = '100%';
+    $('progress-bar').classList.add('done');
+    $('dec-status').textContent = 'Transfer complete!';
+
+    // Decompress if needed.
+    let payload;
+    try {
+      payload = await qramCompress.decompress(rawPadded);
+    } catch {
+      payload = rawPadded;
+    }
+
+    // Check for file envelope.
+    const fileInfo = parseFilePayload(payload);
+
+    const area = $('result-area');
+    area.style.display = '';
+
+    if (fileInfo) {
+      $('result-file').style.display  = '';
+      $('result-text').style.display  = 'none';
+      $('result-filename').textContent = escapeHtml(fileInfo.name);
+      $('result-filesize').textContent = formatBytes(fileInfo.data.length);
+      $('btn-copy').style.display     = 'none';
+      $('btn-save').style.display     = '';
+      decResult = { isFile: true, name: fileInfo.name, data: fileInfo.data };
+    } else {
+      $('result-file').style.display  = 'none';
+      $('result-text').style.display  = '';
+      $('result-text').value           = new TextDecoder().decode(payload);
+      $('btn-copy').style.display     = '';
+      $('btn-save').style.display     = 'none';
+      decResult = { isFile: false, data: payload };
+    }
+  }
+
+  function copyResult() {
+    const btn = $('btn-copy');
+    navigator.clipboard.writeText($('result-text').value).then(() => {
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = orig; }, 2000);
     });
+  }
 
-    pageTabs.onDecodeDeactivate(() => {
-      if (!scanning) return;  // Scan complete or not started — leave result alone
-      // Pause an in-progress scan: stop camera, cancel decoder
-      scanning = false;
-      stopSpeedTracking();
-      if (decoder) { decoder.cancel(); decoder = null; }
-      if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
-      video.srcObject = null;
-      statusEl.textContent = 'Scan paused. Switch back to resume.';
-    });
+  function saveResult() {
+    if (!decResult) return;
+    const url = URL.createObjectURL(new Blob([decResult.data]));
+    Object.assign(document.createElement('a'),
+      { href: url, download: decResult.name || 'qram-output.bin' }).click();
+    URL.revokeObjectURL(url);
+  }
 
-    // Decode is the default active tab — start immediately
-    _decoderStarted = true;
-    init();
+  function resetDecoder() {
+    if (decoder) { decoder.free(); decoder = null; }
+    decFrames = decPkts = 0;
+    decResult    = null;
+    decRunId     = null;
+    decOrigLen   = 0;
+    decBlockSize = 0;
+    lastFP    = null;
 
-    // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
-    document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
-    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    ['s-decoded', 's-total', 's-speed'].forEach(id => { $(id).textContent = '—'; });
+    $('s-frames').textContent = '0';
+    $('progress-bar').style.width = '0%';
+    $('progress-bar').classList.remove('done');
+    $('dec-status').textContent   = 'Scanning…';
+    $('result-area').style.display = 'none';
+    $('result-text').value         = '';
+    $('result-file').style.display = 'none';
+    hideError();
+  }
+
+  function showError(msg) {
+    const box = $('error-box');
+    box.textContent  = msg;
+    box.style.display = '';
+  }
+
+  function hideError() {
+    $('error-box').style.display = 'none';
+  }
+
+  return {
+    setInputMode, handleDrop, handleFileSelect,
+    startEncoder, stopEncoder,
+    copyResult, saveResult, resetDecoder,
+    _setup: setup,
+  };
+})();
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+(async () => {
+  await app._setup();
+  window.app = app;
+})();
