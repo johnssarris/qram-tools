@@ -5,22 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="QRAM Decoder">
+  <meta name="apple-mobile-web-app-title" content="QRAM">
   <meta name="theme-color" content="#1a1a2e">
-  <title>QRAM Decoder</title>
+  <title>QRAM</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Shared libraries -->
   <script src="./libs/qram.min.js"></script>
-  <script src="./libs/jsQR.js"></script>
   <script src="./libs/pako.min.js"></script>
   <script src="./libs/qram-compress.js"></script>
   <script src="./libs/qram-utils.js"></script>
+  <!-- Encoder -->
+  <script src="./libs/qrcode.min.js"></script>
+  <!-- Decoder -->
+  <script src="./libs/jsQR.js"></script>
   <script src="./libs/qram-scan.js"></script>
+
   <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -31,17 +34,34 @@
     }
 
     .container {
-      max-width: 500px;
+      max-width: 600px;
       margin: 0 auto;
     }
 
-    h1 {
+    /* ── Page-level Encode / Decode tabs ──────────────────────────────── */
+    .page-tabs { display: flex; gap: 0; margin-bottom: 20px; }
+
+    .page-tab {
+      flex: 1;
       text-align: center;
-      margin-bottom: 15px;
-      font-size: 1.4rem;
-      color: #00d4ff;
+      padding: 12px 0;
+      background: #16213e;
+      color: #888;
+      border: 1px solid #333;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 700;
+      transition: background .15s, color .15s, border-color .15s;
+      font-family: inherit;
     }
 
+    .page-tab:first-child { border-radius: 10px 0 0 10px; }
+    .page-tab:last-child  { border-radius: 0 10px 10px 0; }
+
+    .page-tab.active { background: #00d4ff; color: #000; border-color: #00d4ff; }
+    .page-tab:not(.active):hover { background: #1e2d4a; color: #ccc; }
+
+    /* ── Decoder styles ───────────────────────────────────────────────── */
     #video-container {
       position: relative;
       width: 100%;
@@ -52,22 +72,12 @@
       margin-bottom: 15px;
     }
 
-    #video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-
-    #canvas {
-      display: none;
-    }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    #canvas { display: none; }
 
     #overlay {
       position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      top: 0; left: 0; right: 0; bottom: 0;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -75,8 +85,7 @@
     }
 
     #scan-region {
-      width: 75%;
-      height: 75%;
+      width: 75%; height: 75%;
       border: 3px solid #00d4ff;
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
@@ -89,20 +98,11 @@
       margin-bottom: 12px;
     }
 
-    .status-label {
-      font-size: 0.8rem;
-      color: #888;
-      margin-bottom: 5px;
-    }
-
-    .status-value {
-      font-size: 1.1rem;
-      font-weight: 600;
-    }
+    .status-label { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
+    .status-value { font-size: 1.1rem; font-weight: 600; }
 
     #progress-bar {
-      width: 100%;
-      height: 10px;
+      width: 100%; height: 10px;
       background: #16213e;
       border-radius: 5px;
       overflow: hidden;
@@ -116,11 +116,7 @@
       transition: width 0.2s ease;
     }
 
-    .stats-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
+    .stats-row { display: flex; gap: 10px; margin-bottom: 12px; }
 
     .stat-box {
       flex: 1;
@@ -130,17 +126,8 @@
       text-align: center;
     }
 
-    .stat-value {
-      font-size: 1.3rem;
-      font-weight: bold;
-      color: #00d4ff;
-    }
-
-    .stat-label {
-      font-size: 0.7rem;
-      color: #888;
-      margin-top: 3px;
-    }
+    .stat-value { font-size: 1.3rem; font-weight: bold; color: #00d4ff; }
+    .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
 
     #result-container {
       display: none;
@@ -150,13 +137,10 @@
       margin-bottom: 12px;
     }
 
-    #result-container.show {
-      display: block;
-    }
+    #result-container.show { display: block; }
 
     #result {
-      width: 100%;
-      height: 180px;
+      width: 100%; height: 180px;
       background: #0d1117;
       border: 1px solid #333;
       border-radius: 8px;
@@ -167,185 +151,604 @@
       resize: vertical;
     }
 
-    /* File result display */
-    .file-result {
-      text-align: center;
-      padding: 20px 10px;
-    }
-
-    .file-result-icon {
-      font-size: 48px;
-      margin-bottom: 10px;
-    }
-
-    .file-result-name {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #00ff88;
-      word-break: break-all;
-      margin-bottom: 5px;
-    }
-
-    .file-result-size {
-      font-size: 0.85rem;
-      color: #888;
-    }
+    .file-result { text-align: center; padding: 20px 10px; }
+    .file-result-icon { font-size: 48px; margin-bottom: 10px; }
+    .file-result-name { font-size: 1rem; font-weight: 600; color: #00ff88; word-break: break-all; margin-bottom: 5px; }
+    .file-result-size { font-size: 0.85rem; color: #888; }
 
     .btn {
-      width: 100%;
-      padding: 14px;
-      border: none;
-      border-radius: 10px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      margin-bottom: 8px;
+      width: 100%; padding: 14px;
+      border: none; border-radius: 10px;
+      font-size: 1rem; font-weight: 600;
+      cursor: pointer; margin-bottom: 8px;
       transition: transform 0.1s;
     }
 
-    .btn:active {
-      transform: scale(0.98);
-    }
-
-    .btn-success {
-      background: #00ff88;
-      color: #000;
-    }
-
-    .btn-secondary {
-      background: #16213e;
-      color: #eee;
-    }
+    .btn:active { transform: scale(0.98); }
+    .btn-success { background: #00ff88; color: #000; }
+    .btn-secondary { background: #16213e; color: #eee; }
 
     #error-msg {
-      background: #ff4444;
-      color: #fff;
-      padding: 10px 15px;
-      border-radius: 8px;
-      margin-bottom: 12px;
-      display: none;
-      font-size: 0.9rem;
+      background: #ff4444; color: #fff;
+      padding: 10px 15px; border-radius: 8px;
+      margin-bottom: 12px; display: none; font-size: 0.9rem;
     }
 
-    #error-msg.show {
-      display: block;
-    }
+    #error-msg.show { display: block; }
 
     .scan-indicator {
-      position: absolute;
-      bottom: 10px;
-      left: 50%;
+      position: absolute; bottom: 10px; left: 50%;
       transform: translateX(-50%);
-      background: rgba(0, 255, 136, 0.9);
-      color: #000;
-      padding: 5px 12px;
-      border-radius: 20px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      opacity: 0;
-      transition: opacity 0.1s;
+      background: rgba(0, 255, 136, 0.9); color: #000;
+      padding: 5px 12px; border-radius: 20px;
+      font-size: 0.75rem; font-weight: 600;
+      opacity: 0; transition: opacity 0.1s;
     }
 
-    .scan-indicator.flash {
-      opacity: 1;
+    .scan-indicator.flash { opacity: 1; }
+
+    /* ── Encoder styles (scoped to #panel-encode) ─────────────────────── */
+    #panel-encode { font-family: system-ui, sans-serif; }
+
+    #panel-encode h2 { margin: 0 0 14px 0; font-size: 1.2rem; }
+
+    #panel-encode textarea {
+      width: 100%; height: 220px;
+      background: #0d1117; color: #0f0;
+      border: 1px solid #333; padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px; border-radius: 8px;
     }
+
+    #panel-encode button {
+      padding: 12px 24px; margin: 10px 8px 10px 0;
+      border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
+    }
+
+    #start { background: #00ff4c; color: #000; }
+    #stop  { background: #ff4b4b; color: #fff; }
+    #start:disabled, #stop:disabled { opacity: .55; cursor: not-allowed; }
+
+    #panel-encode canvas {
+      display: block; margin: 20px auto; background: #fff; border-radius: 0;
+    }
+
+    #stats { text-align: center; font-size: 14px; color: #b7b7b7; min-height: 20px; }
+
+    #err {
+      white-space: pre-wrap; background: #2a1a1a; border: 1px solid #5a2a2a;
+      color: #ffd0d0; padding: 10px; border-radius: 8px; display: none;
+      margin-top: 10px; font-family: ui-monospace, monospace; font-size: 12px;
+    }
+
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin: 12px 0; }
+    .row label { color: #c8c8c8; display: flex; gap: 6px; align-items: center; }
+
+    .row input[type="number"] {
+      width: 80px; padding: 6px 8px;
+      background: #0d1117; border: 1px solid #333; color: #eee; border-radius: 6px;
+    }
+
+    .hint { color: #8f8f8f; font-size: 12px; margin-top: 6px; }
+
+    /* Encoder inner Text / File mode tabs */
+    .mode-tabs { display: flex; gap: 0; margin-bottom: 12px; }
+    .mode-tab {
+      padding: 10px 24px; background: #16213e; color: #888;
+      border: 1px solid #333; cursor: pointer; font-size: 14px; font-weight: 600;
+      transition: all .15s;
+    }
+    .mode-tab:first-child { border-radius: 8px 0 0 8px; }
+    .mode-tab:last-child  { border-radius: 0 8px 8px 0; }
+    .mode-tab.active      { background: #00d4ff; color: #000; border-color: #00d4ff; }
+    .mode-tab:not(.active):hover { background: #1e2d4a; }
+
+    /* Drop zone */
+    #drop-zone {
+      width: 100%; height: 220px;
+      background: #0d1117; border: 2px dashed #444; border-radius: 8px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; cursor: pointer; transition: border-color .2s, background .2s;
+    }
+    #drop-zone.active   { border-color: #00d4ff; background: #0d1117cc; }
+    #drop-zone.has-file { border-color: #00ff88; border-style: solid; }
+    #drop-zone .drop-icon { font-size: 36px; color: #555; }
+    #drop-zone .drop-text { color: #888; font-size: 14px; }
+    #drop-zone .file-info { color: #00ff88; font-size: 14px; font-weight: 600; }
+    #drop-zone .file-size { color: #888; font-size: 12px; }
+    #drop-zone .drop-hint { color: #666; font-size: 11px; }
+    #file-input { display: none; }
+
+    .auto-label { color: #c8c8c8; display: flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
+    .auto-label input[type="checkbox"] { accent-color: #00d4ff; width: 16px; height: 16px; cursor: pointer; }
+    #blk:disabled { opacity: .6; cursor: not-allowed; }
+
+    #data-size { font-size: 12px; color: #888; margin-top: 4px; }
   </style>
 </head>
+
 <body>
   <div class="container">
-    <h1>QRAM Decoder</h1>
 
-    <div id="error-msg"></div>
-
-    <div id="video-container">
-      <video id="video" autoplay playsinline></video>
-      <canvas id="canvas"></canvas>
-      <div id="overlay">
-        <div id="scan-region"></div>
-      </div>
-      <div id="scan-indicator" class="scan-indicator">Packet</div>
+    <!-- Page-level tab switcher -->
+    <div class="page-tabs" role="tablist">
+      <button class="page-tab"        data-page="encode" role="tab">Encode</button>
+      <button class="page-tab active" data-page="decode" role="tab">Decode</button>
     </div>
 
-    <div id="progress-bar">
-      <div id="progress-fill"></div>
-    </div>
+    <!-- ── Encoder panel (hidden by default) ──────────────────────────── -->
+    <div id="panel-encode" style="display:none">
+      <h2>QRAM Encoder</h2>
 
-    <div class="stats-row">
-      <div class="stat-box">
-        <div class="stat-value" id="blocks-received">0</div>
-        <div class="stat-label">Blocks</div>
+      <div class="mode-tabs">
+        <div class="mode-tab active" data-mode="text">Text</div>
+        <div class="mode-tab" data-mode="file">File</div>
       </div>
-      <div class="stat-box">
-        <div class="stat-value" id="blocks-total">?</div>
-        <div class="stat-label">Total</div>
+
+      <div id="text-input">
+        <textarea id="txt" placeholder="Paste text here..."></textarea>
       </div>
-      <div class="stat-box">
-        <div class="stat-value" id="packets-scanned">0</div>
-        <div class="stat-label">Packets</div>
+
+      <div id="file-input-area" style="display:none">
+        <div id="drop-zone">
+          <div class="drop-icon">📁</div>
+          <div class="drop-text">Drop a file here or click to browse</div>
+          <div class="drop-hint">SSH keys, configs, small files</div>
+        </div>
+        <input type="file" id="file-input" />
       </div>
-      <div class="stat-box">
-        <div class="stat-value" id="speed-display">--</div>
-        <div class="stat-label">Speed</div>
+
+      <div id="data-size"></div>
+
+      <div class="hint">
+        If the QR stays white, check the error box below.
       </div>
-    </div>
 
-    <div class="status-box">
-      <div class="status-label">Status</div>
-      <div class="status-value" id="status">Initializing camera...</div>
-    </div>
+      <div class="row">
+        <button id="start">&#9654; Start</button>
+        <button id="stop" disabled>&#9632; Stop</button>
 
-    <div id="result-container">
-      <div class="status-label" id="result-label">Decoded Content</div>
-      <div id="text-result">
-        <textarea id="result" readonly></textarea>
+        <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
+        <label>Block:<input type="number" id="blk" value="200" min="50" max="5000"></label>
+        <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
+        <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
       </div>
-      <div id="file-result" class="file-result" style="display:none">
-        <div class="file-result-icon">📄</div>
-        <div class="file-result-name" id="file-result-name"></div>
-        <div class="file-result-size" id="file-result-size"></div>
+
+      <canvas id="qr" width="350" height="350"></canvas>
+      <div id="stats"></div>
+      <div id="err"></div>
+    </div><!-- /#panel-encode -->
+
+    <!-- ── Decoder panel (visible by default) ─────────────────────────── -->
+    <div id="panel-decode">
+      <div id="error-msg"></div>
+
+      <div id="video-container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="overlay">
+          <div id="scan-region"></div>
+        </div>
+        <div id="scan-indicator" class="scan-indicator">Packet</div>
       </div>
-    </div>
 
-    <button id="copy-btn" class="btn btn-success" style="display: none;">
-      Copy to Clipboard
-    </button>
+      <div id="progress-bar">
+        <div id="progress-fill"></div>
+      </div>
 
-    <button id="download-btn" class="btn btn-success" style="display: none;">
-      Download File
-    </button>
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-value" id="blocks-received">0</div>
+          <div class="stat-label">Blocks</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="blocks-total">?</div>
+          <div class="stat-label">Total</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="packets-scanned">0</div>
+          <div class="stat-label">Packets</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-value" id="speed-display">--</div>
+          <div class="stat-label">Speed</div>
+        </div>
+      </div>
 
-    <button id="save-btn" class="btn btn-success" style="display: none;">
-      Save as File
-    </button>
+      <div class="status-box">
+        <div class="status-label">Status</div>
+        <div class="status-value" id="status">Initializing camera...</div>
+      </div>
 
-    <button id="reset-btn" class="btn btn-secondary">
-      Reset &amp; Scan Again
-    </button>
-  </div>
+      <div id="result-container">
+        <div class="status-label" id="result-label">Decoded Content</div>
+        <div id="text-result">
+          <textarea id="result" readonly></textarea>
+        </div>
+        <div id="file-result" class="file-result" style="display:none">
+          <div class="file-result-icon">📄</div>
+          <div class="file-result-name" id="file-result-name"></div>
+          <div class="file-result-size" id="file-result-size"></div>
+        </div>
+      </div>
+
+      <button id="copy-btn" class="btn btn-success" style="display: none;">
+        Copy to Clipboard
+      </button>
+
+      <button id="download-btn" class="btn btn-success" style="display: none;">
+        Download File
+      </button>
+
+      <button id="save-btn" class="btn btn-success" style="display: none;">
+        Save as File
+      </button>
+
+      <button id="reset-btn" class="btn btn-secondary">
+        Reset &amp; Scan Again
+      </button>
+    </div><!-- /#panel-decode -->
+
+  </div><!-- /.container -->
 
   <script>
+    // ── Zone A: Page-tab controller ───────────────────────────────────────
+    const pageTabs = (() => {
+      const tabs     = document.querySelectorAll('.page-tab');
+      const panelEnc = document.getElementById('panel-encode');
+      const panelDec = document.getElementById('panel-decode');
+
+      let _onEncDeactivate = null;
+      let _onDecActivate   = null;
+      let _onDecDeactivate = null;
+      let current = 'decode';
+
+      function switchTo(page) {
+        if (page === current) return;
+        if (current === 'encode') { _onEncDeactivate && _onEncDeactivate(); }
+        else                      { _onDecDeactivate && _onDecDeactivate(); }
+        panelEnc.style.display = page === 'encode' ? '' : 'none';
+        panelDec.style.display = page === 'decode' ? '' : 'none';
+        tabs.forEach(t => t.classList.toggle('active', t.dataset.page === page));
+        current = page;
+        if (page === 'decode') { _onDecActivate && _onDecActivate(); }
+      }
+
+      tabs.forEach(tab => tab.addEventListener('click', () => switchTo(tab.dataset.page)));
+
+      return {
+        onEncodeDeactivate: fn => { _onEncDeactivate = fn; },
+        onDecodeActivate:   fn => { _onDecActivate   = fn; },
+        onDecodeDeactivate: fn => { _onDecDeactivate = fn; },
+      };
+    })();
+
+    // ── Zone B: Encoder IIFE ──────────────────────────────────────────────
+    (() => {
+      const elTxt      = document.getElementById('txt');
+      const elFPS      = document.getElementById('fps');
+      const elBlk      = document.getElementById('blk');
+      const elAutoBlk  = document.getElementById('auto-blk');
+      const elCompress = document.getElementById('compress');
+      const elStart    = document.getElementById('start');
+      const elStop     = document.getElementById('stop');
+      const elStats    = document.getElementById('stats');
+      const elErr      = document.getElementById('err');
+      const elCanvas   = document.getElementById('qr');
+      const elDataSize = document.getElementById('data-size');
+      const elDropZone = document.getElementById('drop-zone');
+      const elFileInput     = document.getElementById('file-input');
+      const elTextInput     = document.getElementById('text-input');
+      const elFileInputArea = document.getElementById('file-input-area');
+      const modeTabs = document.querySelectorAll('.mode-tab');
+
+      let running = false;
+      let cancelRequested = false;
+      let reader = null;
+      let stream = null;
+
+      let currentMode = 'text';
+      let loadedFile = null;
+
+      const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+
+      // --- Mode switching ---
+      modeTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          if (running) return;
+          const mode = tab.dataset.mode;
+          if (mode === currentMode) return;
+          currentMode = mode;
+          modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+          elTextInput.style.display = mode === 'text' ? '' : 'none';
+          elFileInputArea.style.display = mode === 'file' ? '' : 'none';
+          updateDataSize();
+        });
+      });
+
+      // --- File handling ---
+      function handleFile(file) {
+        if (!file) return;
+        if (file.size > 5000 * 1024) {
+          showError('File too large. Keep files under 100 KB for practical QR transfer.');
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+          loadedFile = {
+            name: file.name,
+            data: new Uint8Array(reader.result)
+          };
+          elDropZone.classList.add('has-file');
+          elDropZone.innerHTML = `
+            <div class="drop-icon">\u2705</div>
+            <div class="file-info">${escapeHtml(file.name)}</div>
+            <div class="file-size">${formatBytes(file.size)}</div>
+            <div class="drop-hint">Click or drop to replace</div>
+          `;
+          updateDataSize();
+        };
+        reader.onerror = () => showError('Failed to read file.');
+        reader.readAsArrayBuffer(file);
+      }
+
+      elDropZone.addEventListener('click', () => elFileInput.click());
+
+      elDropZone.addEventListener('dragover', e => {
+        e.preventDefault();
+        elDropZone.classList.add('active');
+      });
+
+      elDropZone.addEventListener('dragleave', () => {
+        elDropZone.classList.remove('active');
+      });
+
+      elDropZone.addEventListener('drop', e => {
+        e.preventDefault();
+        elDropZone.classList.remove('active');
+        if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+      });
+
+      elFileInput.addEventListener('change', () => {
+        if (elFileInput.files.length > 0) handleFile(elFileInput.files[0]);
+      });
+
+      elTxt.addEventListener('dragover', e => {
+        if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+      });
+
+      elTxt.addEventListener('drop', e => {
+        if (e.dataTransfer.files.length > 0) {
+          e.preventDefault();
+          currentMode = 'file';
+          modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'file'));
+          elTextInput.style.display = 'none';
+          elFileInputArea.style.display = '';
+          handleFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      // --- Auto block size ---
+      function autoBlockSize(dataLength) {
+        if (dataLength <= 50)     return 50;
+        if (dataLength <= 600)    return dataLength;
+        if (dataLength <= 1200)   return Math.ceil(dataLength / 2);
+        if (dataLength <= 5000)   return 400;
+        if (dataLength <= 20000)  return 500;
+        if (dataLength <= 100000) return 600;
+        return 700;
+      }
+
+      elAutoBlk.addEventListener('change', () => {
+        elBlk.disabled = elAutoBlk.checked;
+        if (elAutoBlk.checked) updateDataSize();
+      });
+
+      elBlk.disabled = elAutoBlk.checked;
+      elTxt.addEventListener('input', updateDataSize);
+
+      function updateDataSize() {
+        let size = 0;
+        if (currentMode === 'text') {
+          const txt = elTxt.value || '';
+          if (txt) size = new TextEncoder().encode(txt).length;
+        } else if (loadedFile) {
+          const nameBytes = new TextEncoder().encode(loadedFile.name).length;
+          size = FILE_MAGIC.length + 2 + nameBytes + loadedFile.data.length;
+        }
+
+        if (size > 0) {
+          elDataSize.textContent = `Data: ${formatBytes(size)}`;
+          if (elAutoBlk.checked) elBlk.value = autoBlockSize(size);
+        } else {
+          elDataSize.textContent = '';
+        }
+      }
+
+      // --- Helpers ---
+      const { escapeHtml, formatBytes } = qramUtils;
+
+      function showError(msg, errObj) {
+        const extra = errObj ? ('\n\n' + (errObj.stack || String(errObj))) : '';
+        elErr.textContent = String(msg) + extra;
+        elErr.style.display = 'block';
+        console.error(msg, errObj);
+      }
+
+      function clearError() {
+        elErr.textContent = '';
+        elErr.style.display = 'none';
+      }
+
+      function setButtons(isRunning) {
+        elStart.disabled = isRunning;
+        elStop.disabled = !isRunning;
+        modeTabs.forEach(t => t.style.pointerEvents = isRunning ? 'none' : '');
+      }
+
+      function clearCanvas() {
+        const ctx = elCanvas.getContext('2d');
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, elCanvas.width, elCanvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, elCanvas.width, elCanvas.height);
+        ctx.restore();
+      }
+
+      // --- Build payload ---
+      function buildPayload() {
+        if (currentMode === 'text') {
+          const txt = elTxt.value || '';
+          if (!txt.trim()) return null;
+          return new TextEncoder().encode(txt);
+        } else {
+          if (!loadedFile) return null;
+          const nameBytes = new TextEncoder().encode(loadedFile.name);
+          const totalLen = FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
+          const payload = new Uint8Array(totalLen);
+          let offset = 0;
+          payload.set(FILE_MAGIC, offset);
+          offset += FILE_MAGIC.length;
+          payload[offset]     = (nameBytes.length >> 8) & 0xFF;
+          payload[offset + 1] = nameBytes.length & 0xFF;
+          offset += 2;
+          payload.set(nameBytes, offset);
+          offset += nameBytes.length;
+          payload.set(loadedFile.data, offset);
+          return payload;
+        }
+      }
+
+      // --- Start/Stop ---
+      async function start() {
+        if (running) return;
+        clearError();
+        clearCanvas();
+
+        if (!window.qram)   { showError("qram library didn't load. Check network / content blockers / file:// restrictions."); return; }
+        if (!window.QRCode) { showError("qrcode library didn't load. Check network / content blockers / file:// restrictions."); return; }
+
+        const data = buildPayload();
+        if (!data || data.length === 0) {
+          alert(currentMode === 'text' ? 'Enter text' : 'Select a file');
+          return;
+        }
+
+        let sendData = data;
+        if (elCompress.checked && window.qramCompress) {
+          const cr = await qramCompress.maybeCompress(data);
+          sendData = cr.data;
+          if (cr.compressed) {
+            elDataSize.textContent = `Data: ${formatBytes(cr.originalSize)} \u2192 ${formatBytes(cr.sentSize)} (gz)`;
+          } else {
+            elDataSize.textContent = `Data: ${formatBytes(cr.sentSize)} (no gz)`;
+          }
+        }
+
+        const fps       = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
+        const blockSize = Math.max(50, Math.min(20000, parseInt(elBlk.value, 10) || 300));
+        const delay     = 1000 / fps;
+
+        let enc;
+        try {
+          enc = new qram.Encoder({ data: sendData, blockSize });
+        } catch (e) {
+          showError('Failed to create qram.Encoder (bad options?)', e);
+          return;
+        }
+
+        try {
+          stream = await enc.createReadableStream();
+          reader = stream.getReader();
+        } catch (e) {
+          showError('Failed to create/read QRAM stream.', e);
+          return;
+        }
+
+        running = true;
+        cancelRequested = false;
+        setButtons(true);
+
+        let n = 0;
+        const blocks = Math.ceil(sendData.length / blockSize);
+        const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
+        elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
+
+        try {
+          while (!cancelRequested) {
+            const { value: pkt, done } = await reader.read();
+            if (done) break;
+
+            try {
+              await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
+                width: 350,
+                margin: 1,
+                errorCorrectionLevel: 'L'
+              });
+            } catch (e) {
+              showError('QR render error (QRCode.toCanvas failed).', e);
+              break;
+            }
+
+            n++;
+            elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks, packet #${n}`;
+            await new Promise(ok => setTimeout(ok, delay));
+          }
+        } catch (e) {
+          showError('Streaming loop error.', e);
+        } finally {
+          try { await reader?.cancel(); } catch (e) {}
+          try { await stream?.cancel?.(); } catch (e) {}
+          reader = null;
+          stream = null;
+          running = false;
+          cancelRequested = false;
+          setButtons(false);
+        }
+      }
+
+      function stop() {
+        cancelRequested = true;
+        try { reader?.cancel(); } catch (e) {}
+        try { stream?.cancel?.(); } catch (e) {}
+      }
+
+      elStart.addEventListener('click', start);
+      elStop.addEventListener('click', stop);
+
+      clearCanvas();
+      updateDataSize();
+
+      // Stop encode cleanly when user switches to Decode tab
+      pageTabs.onEncodeDeactivate(() => {
+        if (running) elStop.click();
+      });
+    })();
+
+    // ── Zone C: Decoder ───────────────────────────────────────────────────
     // Elements
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const statusEl = document.getElementById('status');
-    const progressFill = document.getElementById('progress-fill');
-    const blocksReceivedEl = document.getElementById('blocks-received');
-    const blocksTotalEl = document.getElementById('blocks-total');
-    const packetsScannedEl = document.getElementById('packets-scanned');
-    const speedDisplayEl = document.getElementById('speed-display');
-    const resultContainer = document.getElementById('result-container');
-    const resultLabel = document.getElementById('result-label');
-    const textResult = document.getElementById('text-result');
-    const fileResult = document.getElementById('file-result');
-    const fileResultName = document.getElementById('file-result-name');
-    const fileResultSize = document.getElementById('file-result-size');
-    const resultEl = document.getElementById('result');
-    const copyBtn = document.getElementById('copy-btn');
-    const downloadBtn = document.getElementById('download-btn');
-    const saveBtn = document.getElementById('save-btn');
-    const resetBtn = document.getElementById('reset-btn');
-    const errorMsg = document.getElementById('error-msg');
+    const video          = document.getElementById('video');
+    const canvas         = document.getElementById('canvas');
+    const ctx            = canvas.getContext('2d', { willReadFrequently: true });
+    const statusEl       = document.getElementById('status');
+    const progressFill   = document.getElementById('progress-fill');
+    const blocksReceivedEl  = document.getElementById('blocks-received');
+    const blocksTotalEl     = document.getElementById('blocks-total');
+    const packetsScannedEl  = document.getElementById('packets-scanned');
+    const speedDisplayEl    = document.getElementById('speed-display');
+    const resultContainer   = document.getElementById('result-container');
+    const resultLabel       = document.getElementById('result-label');
+    const textResult        = document.getElementById('text-result');
+    const fileResult        = document.getElementById('file-result');
+    const fileResultName    = document.getElementById('file-result-name');
+    const fileResultSize    = document.getElementById('file-result-size');
+    const resultEl     = document.getElementById('result');
+    const copyBtn      = document.getElementById('copy-btn');
+    const downloadBtn  = document.getElementById('download-btn');
+    const saveBtn      = document.getElementById('save-btn');
+    const resetBtn     = document.getElementById('reset-btn');
+    const errorMsg     = document.getElementById('error-msg');
     const scanIndicator = document.getElementById('scan-indicator');
 
     // State
@@ -369,7 +772,7 @@
     let lastTotalBlocks = 0;
 
     // File transfer state
-    let decodedFileData = null;  // { fileName, fileData } if file transfer
+    let decodedFileData = null;
 
     // File protocol magic: "QRAMF"
     const FILE_MAGIC = [0x51, 0x52, 0x41, 0x4D, 0x46];
@@ -394,13 +797,10 @@
       let offset = FILE_MAGIC.length;
       const nameLen = (data[offset] << 8) | data[offset + 1];
       offset += 2;
-
       if (offset + nameLen > data.length) return null;
-
       const nameBytes = data.slice(offset, offset + nameLen);
       const fileName = new TextDecoder().decode(nameBytes);
       offset += nameLen;
-
       const fileData = data.slice(offset);
       return { fileName, fileData };
     }
@@ -440,34 +840,22 @@
           osc.stop(startTime + duration);
         }
         const now = audioCtx.currentTime;
-        playNote(659, now, 0.15);          // E5
-        playNote(880, now + 0.12, 0.2);    // A5
-        playNote(1047, now + 0.24, 0.3);   // C6
-      } catch (e) {
-        // Web Audio not available, ignore
-      }
+        playNote(659, now, 0.15);
+        playNote(880, now + 0.12, 0.2);
+        playNote(1047, now + 0.24, 0.3);
+      } catch (e) {}
     }
 
     function triggerCompletionFeedback() {
-      // Haptic vibration
-      if (navigator.vibrate) {
-        navigator.vibrate([100, 50, 100]);
-      }
-      // Audio chime
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
       playCompletionChime();
     }
 
     // --- Speed tracking ---
     function updateSpeed() {
       if (!firstPacketTime || lastTotalBlocks === 0) return;
-
       const elapsed = (Date.now() - firstPacketTime) / 1000;
       if (elapsed < 0.5) return;
-
-      // Estimate effective speed: (fraction complete * estimated total data size) / time
-      // We estimate total data from total blocks; each block ~= packet payload
-      // But we don't know exact total data size until completion.
-      // Show packets/sec as the primary live metric
       const pps = packetsScanned / elapsed;
       speedDisplayEl.textContent = pps.toFixed(1) + '/s';
     }
@@ -491,7 +879,6 @@
       decoder = new qram.Decoder();
       decodePromise = decoder.decode();
 
-      // Handle decode completion
       decodePromise.then(result => {
         onComplete(result).catch(err => {
           showError('Decode error: ' + err.message);
@@ -514,7 +901,6 @@
         video.srcObject = cameraStream;
         video.setAttribute('playsinline', true);
 
-        // Wait for video metadata so dimensions are available
         await new Promise((resolve, reject) => {
           if (video.videoWidth > 0 && video.videoHeight > 0) {
             resolve();
@@ -525,7 +911,6 @@
         });
 
         await video.play();
-
         statusEl.textContent = 'Point camera at animated QR...';
 
         // Advance generation so any leftover callbacks from a previous loop
@@ -534,35 +919,27 @@
         qramScan.scheduleFrame(video, () => scanFrame(gen));
       } catch (err) {
         scanning = false;
-        if (decoder) {
-          decoder.cancel();
-        }
+        if (decoder) decoder.cancel();
         showError('Camera access denied. Please allow camera permissions.');
         console.error(err);
       }
     }
 
-    // Show error
     function showError(msg) {
       errorMsg.textContent = msg;
       errorMsg.classList.add('show');
     }
 
-    // Hide error
     function hideError() {
       errorMsg.classList.remove('show');
     }
 
-    // Flash indicator
     function flashIndicator() {
       scanIndicator.classList.add('flash');
       if (flashTimeout) clearTimeout(flashTimeout);
-      flashTimeout = setTimeout(() => {
-        scanIndicator.classList.remove('flash');
-      }, 150);
+      flashTimeout = setTimeout(() => scanIndicator.classList.remove('flash'), 150);
     }
 
-    // Batch DOM progress updates to avoid layout thrashing
     function scheduleProgressUpdate() {
       if (pendingProgressUpdate) return;
       pendingProgressUpdate = true;
@@ -570,8 +947,7 @@
         pendingProgressUpdate = false;
         packetsScannedEl.textContent = packetsScanned;
         blocksReceivedEl.textContent = lastReceivedBlocks;
-        blocksTotalEl.textContent = lastTotalBlocks;
-
+        blocksTotalEl.textContent    = lastTotalBlocks;
         const pct = lastTotalBlocks > 0
           ? Math.min(100, (lastReceivedBlocks / lastTotalBlocks) * 100)
           : 0;
@@ -587,20 +963,16 @@
       if (!scanning || gen !== scanGen) return;
 
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        // Crop to the visible 85 % scan region and downscale to 480 px.
-        // canvas.width/height are managed by cropCapture.
+        // Crop to the visible 85% scan region and downscale to 480px.
         const { width, height } = qramScan.cropCapture(video, canvas, ctx);
         const imageData = ctx.getImageData(0, 0, width, height);
-        const code = jsQR(imageData.data, width, height, {
-          inversionAttempts: 'dontInvert'
-        });
+        const code = jsQR(imageData.data, width, height, { inversionAttempts: 'dontInvert' });
 
         if (code && code.binaryData && code.binaryData.length > 0) {
           try {
             const packetData = new Uint8Array(code.binaryData);
 
             // Skip duplicate consecutive frames (encoder FPS << scan FPS).
-            // Sample ~32 evenly-spaced bytes for a fast fingerprint.
             const len = packetData.length;
             const step = Math.max(1, len >> 5);
             let sig = len;
@@ -609,9 +981,7 @@
             if (sig !== lastPacketSignature) {
               lastPacketSignature = sig;
 
-              // Enqueue packet to decoder
               const progress = await decoder.enqueue(packetData);
-
               packetsScanned++;
               flashIndicator();
 
@@ -621,20 +991,18 @@
                 hideError();
               }
 
-              // Update progress state, then batch the DOM write
               if (progress) {
                 lastReceivedBlocks = progress.receivedBlocks;
-                lastTotalBlocks = progress.totalBlocks;
+                lastTotalBlocks    = progress.totalBlocks;
                 scheduleProgressUpdate();
               }
             }
           } catch (err) {
-            // Ignore invalid packets silently - might not be qram format
+            // Ignore invalid packets silently
           }
         }
       }
 
-      // Re-check after any awaits: gen may have been superseded.
       if (scanning && gen === scanGen) {
         qramScan.scheduleFrame(video, () => scanFrame(gen));
       }
@@ -646,26 +1014,19 @@
       stopSpeedTracking();
 
       let data     = result.data;
-      let wireSize = data.length; // bytes actually transmitted over QR
+      let wireSize = data.length;
 
-      // Decompress if the payload carries a QRAMC compression envelope.
-      // Falls back gracefully when qram-compress.js is not loaded.
       if (window.qramCompress) {
         const dr = await qramCompress.maybeDecompress(data);
         data     = dr.data;
         wireSize = dr.wireSize;
       }
 
-      // Calculate final speed using wire (compressed) bytes for accuracy
       if (firstPacketTime) {
         const elapsed = (Date.now() - firstPacketTime) / 1000;
-        if (elapsed > 0) {
-          const speed = wireSize / elapsed;
-          speedDisplayEl.textContent = formatSpeed(speed);
-        }
+        if (elapsed > 0) speedDisplayEl.textContent = formatSpeed(wireSize / elapsed);
       }
 
-      // Check if this is a file transfer
       if (isFileTransfer(data)) {
         const parsed = parseFileTransfer(data);
         if (parsed) {
@@ -675,43 +1036,37 @@
         }
       }
 
-      // Text transfer
       handleTextResult(data);
     }
 
     function handleTextResult(data) {
       const text = new TextDecoder().decode(data);
-
-      resultLabel.textContent = 'Decoded Content';
-      textResult.style.display = '';
-      fileResult.style.display = 'none';
-      resultEl.value = text;
+      resultLabel.textContent    = 'Decoded Content';
+      textResult.style.display   = '';
+      fileResult.style.display   = 'none';
+      resultEl.value             = text;
       resultContainer.classList.add('show');
-      copyBtn.style.display = 'block';
-      saveBtn.style.display = 'block';
-      downloadBtn.style.display = 'none';
-
-      statusEl.textContent = `Complete! ${formatBytes(data.length)} received.`;
-      progressFill.style.width = '100%';
-
+      copyBtn.style.display      = 'block';
+      saveBtn.style.display      = 'block';
+      downloadBtn.style.display  = 'none';
+      statusEl.textContent       = `Complete! ${formatBytes(data.length)} received.`;
+      progressFill.style.width   = '100%';
       triggerCompletionFeedback();
       stopCamera();
     }
 
     function handleFileResult(parsed, totalBytes) {
-      resultLabel.textContent = 'Received File';
-      textResult.style.display = 'none';
-      fileResult.style.display = '';
-      fileResultName.textContent = parsed.fileName;
-      fileResultSize.textContent = formatBytes(parsed.fileData.length);
+      resultLabel.textContent         = 'Received File';
+      textResult.style.display        = 'none';
+      fileResult.style.display        = '';
+      fileResultName.textContent      = parsed.fileName;
+      fileResultSize.textContent      = formatBytes(parsed.fileData.length);
       resultContainer.classList.add('show');
-      downloadBtn.style.display = 'block';
-      copyBtn.style.display = 'none';
-      saveBtn.style.display = 'none';
-
+      downloadBtn.style.display       = 'block';
+      copyBtn.style.display           = 'none';
+      saveBtn.style.display           = 'none';
       statusEl.textContent = `Complete! File "${parsed.fileName}" (${formatBytes(parsed.fileData.length)}) received.`;
-      progressFill.style.width = '100%';
-
+      progressFill.style.width        = '100%';
       triggerCompletionFeedback();
       stopCamera();
     }
@@ -742,19 +1097,11 @@
 
     // Reset
     resetBtn.addEventListener('click', () => {
-      // Stop the current scan loop first to prevent double loops
       scanning = false;
       stopSpeedTracking();
-
-      // Cancel current decoder
-      if (decoder) {
-        decoder.cancel();
-      }
-
-      // Stop camera if still running
+      if (decoder) decoder.cancel();
       stopCamera();
 
-      // Reset state
       packetsScanned = 0;
       lastPacketSignature = null;
       firstPacketTime = null;
@@ -763,21 +1110,19 @@
       decodedFileData = null;
       pendingProgressUpdate = false;
 
-      // Reset UI
       resultContainer.classList.remove('show');
-      textResult.style.display = '';
-      fileResult.style.display = 'none';
-      copyBtn.style.display = 'none';
-      downloadBtn.style.display = 'none';
-      saveBtn.style.display = 'none';
-      progressFill.style.width = '0%';
-      blocksReceivedEl.textContent = '0';
-      blocksTotalEl.textContent = '?';
-      packetsScannedEl.textContent = '0';
-      speedDisplayEl.textContent = '--';
+      textResult.style.display   = '';
+      fileResult.style.display   = 'none';
+      copyBtn.style.display      = 'none';
+      downloadBtn.style.display  = 'none';
+      saveBtn.style.display      = 'none';
+      progressFill.style.width   = '0%';
+      blocksReceivedEl.textContent  = '0';
+      blocksTotalEl.textContent     = '?';
+      packetsScannedEl.textContent  = '0';
+      speedDisplayEl.textContent    = '--';
       hideError();
 
-      // Reinitialize
       init();
     });
 
@@ -786,7 +1131,34 @@
       navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
 
-    // Start
+    // ── Lazy camera: start when Decode tab is activated ───────────────────
+    // Decode is the default active tab, so we also call init() immediately below.
+    let _decoderStarted = false;
+
+    pageTabs.onDecodeActivate(() => {
+      if (!_decoderStarted) {
+        _decoderStarted = true;
+        init();
+        return;
+      }
+      // Returning to Decode after switching away: restart only if no result showing
+      const scanDone = resultContainer.classList.contains('show');
+      if (!scanDone) init();
+    });
+
+    pageTabs.onDecodeDeactivate(() => {
+      if (!scanning) return;  // Scan complete or not started — leave result alone
+      // Pause an in-progress scan: stop camera, cancel decoder
+      scanning = false;
+      stopSpeedTracking();
+      if (decoder) { decoder.cancel(); decoder = null; }
+      if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+      video.srcObject = null;
+      statusEl.textContent = 'Scan paused. Switch back to resume.';
+    });
+
+    // Decode is the default active tab — start immediately
+    _decoderStarted = true;
     init();
   </script>
 </body>

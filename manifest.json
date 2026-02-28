@@ -1,7 +1,7 @@
 {
-  "name": "QRAM Decoder",
+  "name": "QRAM",
   "short_name": "QRAM",
-  "description": "Scan animated QR codes to receive text via fountain codes",
+  "description": "Send and receive data via animated QR codes using fountain codes",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "portrait",
