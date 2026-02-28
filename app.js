@@ -63,7 +63,8 @@
       let currentMode = 'text';
       let loadedFile = null;
 
-      const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+      const FILE_MAGIC    = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB — adjust here to change both the check and the error message
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {
@@ -83,8 +84,8 @@
       // --- File handling ---
       function handleFile(file) {
         if (!file) return;
-        if (file.size > 5000 * 1024) {
-          showError('File too large. Keep files under 100 KB for practical QR transfer.');
+        if (file.size > MAX_FILE_SIZE) {
+          showError(`File too large. Keep files under ${formatBytes(MAX_FILE_SIZE)} for practical QR transfer.`);
           return;
         }
         const reader = new FileReader();
@@ -134,10 +135,7 @@
       elTxt.addEventListener('drop', e => {
         if (e.dataTransfer.files.length > 0) {
           e.preventDefault();
-          currentMode = 'file';
-          modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === 'file'));
-          elTextInput.style.display = 'none';
-          elFileInputArea.style.display = '';
+          handleModeSwitch('file');
           handleFile(e.dataTransfer.files[0]);
         }
       });
@@ -396,7 +394,7 @@
     let decodedFileData = null;
 
     // File protocol magic: "QRAMF"
-    const FILE_MAGIC = [0x51, 0x52, 0x41, 0x4D, 0x46];
+    const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
 
     // --- Helpers ---
     const { formatBytes, downloadBlob } = qramUtils;
@@ -672,38 +670,37 @@
       handleTextResult(data);
     }
 
-    function handleTextResult(data) {
-      const text = new TextDecoder().decode(data);
-      resultLabel.textContent    = 'Decoded Content';
-      textResult.style.display   = '';
-      fileResult.style.display   = 'none';
-      resultEl.value             = text;
+    function _finishResult(statusText) {
       resultContainer.classList.add('show');
-      copyBtn.style.display      = 'block';
-      saveBtn.style.display      = 'block';
-      downloadBtn.style.display  = 'none';
-      statusEl.textContent       = `Complete! ${formatBytes(data.length)} received.`;
-      progressFill.style.width   = '100%';
+      progressFill.style.width = '100%';
+      statusEl.textContent     = statusText;
       triggerCompletionFeedback();
       stopCamera();
       setDecodeView(false);
     }
 
+    function handleTextResult(data) {
+      const text = new TextDecoder().decode(data);
+      resultLabel.textContent   = 'Decoded Content';
+      textResult.style.display  = '';
+      fileResult.style.display  = 'none';
+      resultEl.value            = text;
+      copyBtn.style.display     = 'block';
+      saveBtn.style.display     = 'block';
+      downloadBtn.style.display = 'none';
+      _finishResult(`Complete! ${formatBytes(data.length)} received.`);
+    }
+
     function handleFileResult(parsed, totalBytes) {
-      resultLabel.textContent         = 'Received File';
-      textResult.style.display        = 'none';
-      fileResult.style.display        = '';
-      fileResultName.textContent      = parsed.fileName;
-      fileResultSize.textContent      = formatBytes(parsed.fileData.length);
-      resultContainer.classList.add('show');
-      downloadBtn.style.display       = 'block';
-      copyBtn.style.display           = 'none';
-      saveBtn.style.display           = 'none';
-      statusEl.textContent = `Complete! File "${parsed.fileName}" (${formatBytes(parsed.fileData.length)}) received.`;
-      progressFill.style.width        = '100%';
-      triggerCompletionFeedback();
-      stopCamera();
-      setDecodeView(false);
+      resultLabel.textContent    = 'Received File';
+      textResult.style.display   = 'none';
+      fileResult.style.display   = '';
+      fileResultName.textContent = parsed.fileName;
+      fileResultSize.textContent = formatBytes(parsed.fileData.length);
+      downloadBtn.style.display  = 'block';
+      copyBtn.style.display      = 'none';
+      saveBtn.style.display      = 'none';
+      _finishResult(`Complete! File "${parsed.fileName}" (${formatBytes(parsed.fileData.length)}) received.`);
     }
 
     function stopCamera() {
@@ -779,11 +776,11 @@
 
     // ── Lazy camera: start when Decode tab is activated ───────────────────
     // Decode is the default active tab, so we also call init() immediately below.
-    let _decoderStarted = false;
+    let decoderStarted = false;
 
     pageTabs.onDecodeActivate(() => {
-      if (!_decoderStarted) {
-        _decoderStarted = true;
+      if (!decoderStarted) {
+        decoderStarted = true;
         init();
         return;
       }
@@ -804,7 +801,7 @@
     });
 
     // Decode is the default active tab — start immediately
-    _decoderStarted = true;
+    decoderStarted = true;
     init();
 
     // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
