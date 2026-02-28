@@ -200,20 +200,41 @@
       font-size: 12px; border-radius: 8px;
     }
 
-    #panel-encode button {
-      padding: 12px 24px; margin: 10px 8px 10px 0;
-      border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
+    #start {
+      display: block; width: 100%;
+      padding: 14px; margin-top: 12px;
+      border: none; border-radius: 10px;
+      font-size: 1.05rem; font-weight: 700; cursor: pointer;
+      background: #00ff4c; color: #000;
+      transition: transform .1s;
     }
+    #start:active { transform: scale(0.98); }
+    #start:disabled { opacity: .55; cursor: not-allowed; }
 
-    #start { background: #00ff4c; color: #000; }
-    #stop  { background: #ff4b4b; color: #fff; }
-    #start:disabled, #stop:disabled { opacity: .55; cursor: not-allowed; }
+    #stop {
+      display: block; width: 100%;
+      padding: 16px; margin-top: 14px;
+      border: none; border-radius: 10px;
+      font-size: 1.1rem; font-weight: 700; cursor: pointer;
+      background: #ff4b4b; color: #fff;
+      transition: transform .1s;
+    }
+    #stop:active { transform: scale(0.98); }
 
     #panel-encode canvas {
-      display: block; margin: 20px auto; background: #fff; border-radius: 0;
+      display: block;
+      width: 100%; max-width: 350px; aspect-ratio: 1;
+      margin: 0 auto 4px;
+      background: #fff; border-radius: 8px;
     }
 
-    #stats { text-align: center; font-size: 14px; color: #b7b7b7; min-height: 20px; }
+    #stats {
+      text-align: center; font-size: 13px; color: #b7b7b7;
+      padding: 6px 0 2px; min-height: 22px;
+    }
+
+    .enc-settings { margin-top: 10px; }
+    .enc-settings label { font-size: 13px; }
 
     #err {
       white-space: pre-wrap; background: #2a1a1a; border: 1px solid #5a2a2a;
@@ -228,8 +249,6 @@
       width: 80px; padding: 6px 8px;
       background: #0d1117; border: 1px solid #333; color: #eee; border-radius: 6px;
     }
-
-    .hint { color: #8f8f8f; font-size: 12px; margin-top: 6px; }
 
     /* Encoder inner Text / File mode tabs */
     .mode-tabs { display: flex; gap: 0; margin-bottom: 12px; }
@@ -278,45 +297,51 @@
 
     <!-- ── Encoder panel (hidden by default) ──────────────────────────── -->
     <div id="panel-encode" style="display:none">
-      <h2>QRAM Encoder</h2>
 
-      <div class="mode-tabs">
-        <div class="mode-tab active" data-mode="text">Text</div>
-        <div class="mode-tab" data-mode="file">File</div>
-      </div>
+      <!-- Setup view: shown before encoding starts -->
+      <div id="enc-setup">
+        <h2>QRAM Encoder</h2>
 
-      <div id="text-input">
-        <textarea id="txt" placeholder="Paste text here..."></textarea>
-      </div>
-
-      <div id="file-input-area" style="display:none">
-        <div id="drop-zone">
-          <div class="drop-icon">📁</div>
-          <div class="drop-text">Drop a file here or click to browse</div>
-          <div class="drop-hint">SSH keys, configs, small files</div>
+        <div class="mode-tabs">
+          <div class="mode-tab active" data-mode="text">Text</div>
+          <div class="mode-tab" data-mode="file">File</div>
         </div>
-        <input type="file" id="file-input" />
-      </div>
 
-      <div id="data-size"></div>
+        <div id="text-input">
+          <textarea id="txt" placeholder="Paste text here..."></textarea>
+        </div>
 
-      <div class="hint">
-        If the QR stays white, check the error box below.
-      </div>
+        <div id="file-input-area" style="display:none">
+          <div id="drop-zone">
+            <div class="drop-icon">📁</div>
+            <div class="drop-text">Drop a file here or click to browse</div>
+            <div class="drop-hint">SSH keys, configs, small files</div>
+          </div>
+          <input type="file" id="file-input" />
+        </div>
 
-      <div class="row">
-        <button id="start">&#9654; Start</button>
-        <button id="stop" disabled>&#9632; Stop</button>
+        <div id="data-size"></div>
 
-        <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
-        <label>Block:<input type="number" id="blk" value="200" min="50" max="5000"></label>
-        <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
-        <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
-      </div>
+        <div class="row enc-settings">
+          <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
+          <label>Block:<input type="number" id="blk" value="200" min="50" max="5000"></label>
+          <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
+          <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
+        </div>
 
-      <canvas id="qr" width="350" height="350"></canvas>
-      <div id="stats"></div>
+        <button id="start">&#9654; Start Encoding</button>
+      </div><!-- /#enc-setup -->
+
+      <!-- Error box: always visible, shown between views if needed -->
       <div id="err"></div>
+
+      <!-- Live view: shown while encoding is running -->
+      <div id="enc-live" style="display:none">
+        <canvas id="qr" width="350" height="350"></canvas>
+        <div id="stats"></div>
+        <button id="stop">&#9632; Stop</button>
+      </div><!-- /#enc-live -->
+
     </div><!-- /#panel-encode -->
 
     <!-- ── Decoder panel (visible by default) ─────────────────────────── -->
@@ -580,10 +605,15 @@
         elErr.style.display = 'none';
       }
 
-      function setButtons(isRunning) {
-        elStart.disabled = isRunning;
-        elStop.disabled = !isRunning;
-        modeTabs.forEach(t => t.style.pointerEvents = isRunning ? 'none' : '');
+      const encSetup = document.getElementById('enc-setup');
+      const encLive  = document.getElementById('enc-live');
+
+      function setEncodeView(isRunning) {
+        encSetup.style.display = isRunning ? 'none' : '';
+        encLive.style.display  = isRunning ? '' : 'none';
+        if (isRunning) {
+          elCanvas.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       }
 
       function clearCanvas() {
@@ -668,7 +698,7 @@
 
         running = true;
         cancelRequested = false;
-        setButtons(true);
+        setEncodeView(true);
 
         let n = 0;
         const blocks = Math.ceil(sendData.length / blockSize);
@@ -704,7 +734,7 @@
           stream = null;
           running = false;
           cancelRequested = false;
-          setButtons(false);
+          setEncodeView(false);
         }
       }
 
