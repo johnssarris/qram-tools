@@ -20,12 +20,21 @@
   <script src="./libs/qram-scan.js"></script>
 
   <style>
+    /* ── Design tokens ────────────────────────────────────────────────── */
+    :root {
+      --bg-deep:        #1a1a2e;  /* page background */
+      --bg-mid:         #16213e;  /* card / panel background */
+      --bg-dark:        #0d1117;  /* input / canvas background */
+      --accent-blue:    #00d4ff;  /* primary accent */
+      --accent-green:   #00ff88;  /* success / received */
+    }
+
     /* ── Reset & base ─────────────────────────────────────────────────── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a2e;
+      background: var(--bg-deep);
       color: #eee;
       min-height: 100vh;
       padding: 15px;
@@ -43,7 +52,7 @@
       flex: 1;
       text-align: center;
       padding: 12px 0;
-      background: #16213e;
+      background: var(--bg-mid);
       color: #888;
       border: 1px solid #333;
       cursor: pointer;
@@ -56,7 +65,7 @@
     .page-tab:first-child { border-radius: 10px 0 0 10px; }
     .page-tab:last-child  { border-radius: 0 10px 10px 0; }
 
-    .page-tab.active { background: #00d4ff; color: #000; border-color: #00d4ff; }
+    .page-tab.active { background: var(--accent-blue); color: #000; border-color: var(--accent-blue); }
     .page-tab:not(.active):hover { background: #1e2d4a; color: #ccc; }
 
     /* ── Decoder styles ───────────────────────────────────────────────── */
@@ -64,7 +73,7 @@
       position: relative;
       width: 100%;
       aspect-ratio: 1;
-      background: #000;
+      background: #000;  /* true black for camera viewfinder */
       border-radius: 12px;
       overflow: hidden;
       margin-bottom: 15px;
@@ -84,13 +93,13 @@
 
     #scan-region {
       width: 75%; height: 75%;
-      border: 3px solid #00d4ff;
+      border: 3px solid var(--accent-blue);
       border-radius: 12px;
       box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
     }
 
     .status-box {
-      background: #16213e;
+      background: var(--bg-mid);
       border-radius: 12px;
       padding: 15px;
       margin-bottom: 12px;
@@ -101,7 +110,7 @@
 
     #progress-bar {
       width: 100%; height: 10px;
-      background: #16213e;
+      background: var(--bg-mid);
       border-radius: 5px;
       overflow: hidden;
       margin-bottom: 12px;
@@ -109,7 +118,7 @@
 
     #progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, #00d4ff, #00ff88);
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
       width: 0%;
       transition: width 0.2s ease;
     }
@@ -118,19 +127,19 @@
 
     .stat-box {
       flex: 1;
-      background: #16213e;
+      background: var(--bg-mid);
       border-radius: 10px;
       padding: 12px;
       text-align: center;
     }
 
-    .stat-value { font-size: 1.3rem; font-weight: bold; color: #00d4ff; }
+    .stat-value { font-size: 1.3rem; font-weight: bold; color: var(--accent-blue); }
     .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
     #speed-display { font-size: 0.85rem; white-space: pre-line; line-height: 1.4; }
 
     #result-container {
       display: none;
-      background: #16213e;
+      background: var(--bg-mid);
       border-radius: 12px;
       padding: 15px;
       margin-bottom: 12px;
@@ -140,10 +149,10 @@
 
     #result {
       width: 100%; height: 180px;
-      background: #0d1117;
+      background: var(--bg-dark);
       border: 1px solid #333;
       border-radius: 8px;
-      color: #00ff88;
+      color: var(--accent-green);
       font-family: 'Monaco', 'Menlo', monospace;
       font-size: 11px;
       padding: 10px;
@@ -152,7 +161,7 @@
 
     .file-result { text-align: center; padding: 20px 10px; }
     .file-result-icon { font-size: 48px; margin-bottom: 10px; }
-    .file-result-name { font-size: 1rem; font-weight: 600; color: #00ff88; word-break: break-all; margin-bottom: 5px; }
+    .file-result-name { font-size: 1rem; font-weight: 600; color: var(--accent-green); word-break: break-all; margin-bottom: 5px; }
     .file-result-size { font-size: 0.85rem; color: #888; }
 
     .btn {
@@ -164,8 +173,8 @@
     }
 
     .btn:active { transform: scale(0.98); }
-    .btn-success { background: #00ff88; color: #000; }
-    .btn-secondary { background: #16213e; color: #eee; }
+    .btn-success   { background: var(--accent-green); color: #000; }
+    .btn-secondary { background: var(--bg-mid); color: #eee; }
 
     #error-msg {
       background: #ff4444; color: #fff;
@@ -178,7 +187,7 @@
     .scan-indicator {
       position: absolute; bottom: 10px; left: 50%;
       transform: translateX(-50%);
-      background: rgba(0, 255, 136, 0.9); color: #000;
+      background: rgba(0, 255, 136, 0.9); color: #000;  /* intentional opaque green flash */
       padding: 5px 12px; border-radius: 20px;
       font-size: 0.75rem; font-weight: 600;
       opacity: 0; transition: opacity 0.1s;
@@ -193,32 +202,16 @@
 
     #panel-encode textarea {
       width: 100%; height: 220px;
-      background: #0d1117; color: #0f0;
+      background: var(--bg-dark); color: #0f0;
       border: 1px solid #333; padding: 10px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       font-size: 12px; border-radius: 8px;
     }
 
-    #start {
-      display: block; width: 100%;
-      padding: 14px; margin-top: 12px;
-      border: none; border-radius: 10px;
-      font-size: 1.05rem; font-weight: 700; cursor: pointer;
-      background: #00ff4c; color: #000;
-      transition: transform .1s;
-    }
-    #start:active { transform: scale(0.98); }
+    #start { margin-top: 12px; background: #00ff4c; color: #000; font-size: 1.05rem; }
     #start:disabled { opacity: .55; cursor: not-allowed; }
 
-    #stop {
-      display: block; width: 100%;
-      padding: 16px; margin-top: 14px;
-      border: none; border-radius: 10px;
-      font-size: 1.1rem; font-weight: 700; cursor: pointer;
-      background: #ff4b4b; color: #fff;
-      transition: transform .1s;
-    }
-    #stop:active { transform: scale(0.98); }
+    #stop  { margin-top: 14px; background: #ff4b4b; color: #fff; font-size: 1.1rem; }
 
     #panel-encode canvas {
       display: block;
@@ -246,39 +239,39 @@
 
     .row input[type="number"] {
       width: 80px; padding: 6px 8px;
-      background: #0d1117; border: 1px solid #333; color: #eee; border-radius: 6px;
+      background: var(--bg-dark); border: 1px solid #333; color: #eee; border-radius: 6px;
     }
 
     /* Encoder inner Text / File mode tabs */
     .mode-tabs { display: flex; gap: 0; margin-bottom: 12px; }
     .mode-tab {
-      padding: 10px 24px; background: #16213e; color: #888;
+      padding: 10px 24px; background: var(--bg-mid); color: #888;
       border: 1px solid #333; cursor: pointer; font-size: 14px; font-weight: 600;
       transition: all .15s;
     }
     .mode-tab:first-child { border-radius: 8px 0 0 8px; }
     .mode-tab:last-child  { border-radius: 0 8px 8px 0; }
-    .mode-tab.active      { background: #00d4ff; color: #000; border-color: #00d4ff; }
+    .mode-tab.active      { background: var(--accent-blue); color: #000; border-color: var(--accent-blue); }
     .mode-tab:not(.active):hover { background: #1e2d4a; }
 
     /* Drop zone */
     #drop-zone {
       width: 100%; height: 220px;
-      background: #0d1117; border: 2px dashed #444; border-radius: 8px;
+      background: var(--bg-dark); border: 2px dashed #444; border-radius: 8px;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 10px; cursor: pointer; transition: border-color .2s, background .2s;
     }
-    #drop-zone.active   { border-color: #00d4ff; background: #0d1117cc; }
-    #drop-zone.has-file { border-color: #00ff88; border-style: solid; }
+    #drop-zone.active   { border-color: var(--accent-blue); background: #0d1117cc; }
+    #drop-zone.has-file { border-color: var(--accent-green); border-style: solid; }
     #drop-zone .drop-icon { font-size: 36px; color: #555; }
     #drop-zone .drop-text { color: #888; font-size: 14px; }
-    #drop-zone .file-info { color: #00ff88; font-size: 14px; font-weight: 600; }
+    #drop-zone .file-info { color: var(--accent-green); font-size: 14px; font-weight: 600; }
     #drop-zone .file-size { color: #888; font-size: 12px; }
     #drop-zone .drop-hint { color: #666; font-size: 11px; }
     #file-input { display: none; }
 
     .auto-label { color: #c8c8c8; display: flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
-    .auto-label input[type="checkbox"] { accent-color: #00d4ff; width: 16px; height: 16px; cursor: pointer; }
+    .auto-label input[type="checkbox"] { accent-color: var(--accent-blue); width: 16px; height: 16px; cursor: pointer; }
     #blk:disabled { opacity: .6; cursor: not-allowed; }
 
     #data-size { font-size: 12px; color: #888; margin-top: 4px; }
@@ -328,7 +321,7 @@
           <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
         </div>
 
-        <button id="start">&#9654; Start Encoding</button>
+        <button id="start" class="btn">&#9654; Start Encoding</button>
       </div><!-- /#enc-setup -->
 
       <!-- Error box: always visible, shown between views if needed -->
@@ -338,7 +331,7 @@
       <div id="enc-live" style="display:none">
         <canvas id="qr" width="350" height="350"></canvas>
         <div id="stats"></div>
-        <button id="stop">&#9632; Stop</button>
+        <button id="stop" class="btn">&#9632; Stop</button>
       </div><!-- /#enc-live -->
 
     </div><!-- /#panel-encode -->
