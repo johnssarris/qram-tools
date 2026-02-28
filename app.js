@@ -566,7 +566,7 @@
       pendingProgressUpdate = true;
       requestAnimationFrame(() => {
         pendingProgressUpdate = false;
-        const minFrames = lastTotalBlocks > 0 ? lastTotalBlocks : '?';
+        const minFrames = lastTotalBlocks > 0 ? Math.ceil(lastTotalBlocks * 1.2) : '?';
         packetsScannedEl.textContent = `${packetsScanned} / ${minFrames}`;
         blocksReceivedEl.textContent = lastReceivedBlocks;
         blocksTotalEl.textContent    = lastTotalBlocks;
