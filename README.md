@@ -37,7 +37,7 @@ QR codes comfortably fit ~1–2 KB per frame at error correction level M, and de
 |---|---|---|
 | FPS | 10 | Higher is faster but the camera needs to keep up (~15–20 is practical) |
 | Block size | 200 B | Smaller blocks → more, smaller QR codes; larger blocks → fewer, denser codes |
-| Error correction | M (15%) | Higher EC = more robust to partial occlusion, but fewer data bytes per code |
+| Error correction | L (7%) | Higher EC = more robust to partial occlusion, but fewer data bytes per code |
 | Compress | On | gzip via native `CompressionStream`; skipped automatically if it doesn't help |
 
 ## Architecture
