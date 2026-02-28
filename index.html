@@ -128,6 +128,7 @@
 
     .stat-value { font-size: 1.3rem; font-weight: bold; color: #00d4ff; }
     .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
+    #speed-display { font-size: 0.85rem; white-space: pre-line; line-height: 1.4; }
 
     #result-container {
       display: none;
@@ -364,15 +365,15 @@
       <div class="stats-row">
         <div class="stat-box">
           <div class="stat-value" id="blocks-received">0</div>
-          <div class="stat-label">Blocks</div>
+          <div class="stat-label">Decoded</div>
         </div>
         <div class="stat-box">
           <div class="stat-value" id="blocks-total">?</div>
-          <div class="stat-label">Total</div>
+          <div class="stat-label">Blocks</div>
         </div>
         <div class="stat-box">
-          <div class="stat-value" id="packets-scanned">0</div>
-          <div class="stat-label">Packets</div>
+          <div class="stat-value" id="packets-scanned">0 / ?</div>
+          <div class="stat-label">Frames</div>
         </div>
         <div class="stat-box">
           <div class="stat-value" id="speed-display">--</div>
@@ -478,17 +479,18 @@
       const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
 
       // --- Mode switching ---
+      function handleModeSwitch(mode) {
+        if (running) return;
+        if (mode === currentMode) return;
+        currentMode = mode;
+        modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+        elTextInput.style.display = mode === 'text' ? '' : 'none';
+        elFileInputArea.style.display = mode === 'file' ? '' : 'none';
+        updateDataSize();
+      }
+
       modeTabs.forEach(tab => {
-        tab.addEventListener('click', () => {
-          if (running) return;
-          const mode = tab.dataset.mode;
-          if (mode === currentMode) return;
-          currentMode = mode;
-          modeTabs.forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
-          elTextInput.style.display = mode === 'text' ? '' : 'none';
-          elFileInputArea.style.display = mode === 'file' ? '' : 'none';
-          updateDataSize();
-        });
+        tab.addEventListener('click', () => handleModeSwitch(tab.dataset.mode));
       });
 
       // --- File handling ---
@@ -505,12 +507,12 @@
             data: new Uint8Array(reader.result)
           };
           elDropZone.classList.add('has-file');
-          elDropZone.innerHTML = `
-            <div class="drop-icon">\u2705</div>
-            <div class="file-info">${escapeHtml(file.name)}</div>
-            <div class="file-size">${formatBytes(file.size)}</div>
-            <div class="drop-hint">Click or drop to replace</div>
-          `;
+          elDropZone.innerHTML = '';
+          const _icon = Object.assign(document.createElement('div'), { className: 'drop-icon', textContent: '\u2705' });
+          const _info = Object.assign(document.createElement('div'), { className: 'file-info', textContent: file.name });
+          const _size = Object.assign(document.createElement('div'), { className: 'file-size', textContent: formatBytes(file.size) });
+          const _hint = Object.assign(document.createElement('div'), { className: 'drop-hint', textContent: 'Click or drop to replace' });
+          elDropZone.append(_icon, _info, _size, _hint);
           updateDataSize();
         };
         reader.onerror = () => showError('Failed to read file.');
@@ -591,7 +593,7 @@
       }
 
       // --- Helpers ---
-      const { escapeHtml, formatBytes } = qramUtils;
+      const { formatBytes } = qramUtils;
 
       function showError(msg, errObj) {
         const extra = errObj ? ('\n\n' + (errObj.stack || String(errObj))) : '';
@@ -800,6 +802,7 @@
     let firstPacketTime = null;
     let lastReceivedBlocks = 0;
     let lastTotalBlocks = 0;
+    let totalBytesReceived = 0;
 
     // File transfer state
     let decodedFileData = null;
@@ -887,7 +890,8 @@
       const elapsed = (Date.now() - firstPacketTime) / 1000;
       if (elapsed < 0.5) return;
       const pps = packetsScanned / elapsed;
-      speedDisplayEl.textContent = pps.toFixed(1) + '/s';
+      const kbps = formatSpeed(totalBytesReceived / elapsed);
+      speedDisplayEl.textContent = `${pps.toFixed(1)} pkt/s\n${kbps}`;
     }
 
     function startSpeedTracking() {
@@ -975,7 +979,8 @@
       pendingProgressUpdate = true;
       requestAnimationFrame(() => {
         pendingProgressUpdate = false;
-        packetsScannedEl.textContent = packetsScanned;
+        const minFrames = lastTotalBlocks > 0 ? lastTotalBlocks : '?';
+        packetsScannedEl.textContent = `${packetsScanned} / ${minFrames}`;
         blocksReceivedEl.textContent = lastReceivedBlocks;
         blocksTotalEl.textContent    = lastTotalBlocks;
         const pct = lastTotalBlocks > 0
@@ -1013,6 +1018,7 @@
 
               const progress = await decoder.enqueue(packetData);
               packetsScanned++;
+              totalBytesReceived += packetData.length;
               flashIndicator();
 
               if (!firstPacketTime) {
@@ -1054,7 +1060,10 @@
 
       if (firstPacketTime) {
         const elapsed = (Date.now() - firstPacketTime) / 1000;
-        if (elapsed > 0) speedDisplayEl.textContent = formatSpeed(wireSize / elapsed);
+        if (elapsed > 0) {
+          const pps = packetsScanned / elapsed;
+          speedDisplayEl.textContent = `${pps.toFixed(1)} pkt/s\n${formatSpeed(wireSize / elapsed)}`;
+        }
       }
 
       if (isFileTransfer(data)) {
@@ -1126,13 +1135,14 @@
     });
 
     // Reset
-    resetBtn.addEventListener('click', () => {
+    function handleReset() {
       scanning = false;
       stopSpeedTracking();
       if (decoder) decoder.cancel();
       stopCamera();
 
       packetsScanned = 0;
+      totalBytesReceived = 0;
       lastPacketSignature = null;
       firstPacketTime = null;
       lastReceivedBlocks = 0;
@@ -1149,12 +1159,14 @@
       progressFill.style.width   = '0%';
       blocksReceivedEl.textContent  = '0';
       blocksTotalEl.textContent     = '?';
-      packetsScannedEl.textContent  = '0';
+      packetsScannedEl.textContent  = '0 / ?';
       speedDisplayEl.textContent    = '--';
       hideError();
 
       init();
-    });
+    }
+
+    resetBtn.addEventListener('click', handleReset);
 
     // Register service worker for offline PWA support
     if ('serviceWorker' in navigator) {
