@@ -1,5 +1,8 @@
-    // Pre-warm ZXing WASM: triggers CDN fetch + WebAssembly compile early,
-    // so the first QR scan attempt has no delay.
+    // Load WASM binary from libs/ (no CDN fetch needed).
+    ZXingWASM.setZXingModuleOverrides({
+      locateFile: (path, _prefix) =>
+        path.endsWith('.wasm') ? `./libs/${path}` : _prefix + path,
+    });
     ZXingWASM.prepareZXingModule();
 
     // ── Zone A: Page-tab controller ───────────────────────────────────────
