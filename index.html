@@ -347,41 +347,43 @@
     <div id="panel-decode">
       <div id="error-msg"></div>
 
-      <div id="video-container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="canvas"></canvas>
-        <div id="overlay">
-          <div id="scan-region"></div>
+      <div id="dec-scan">
+        <div id="video-container">
+          <video id="video" autoplay playsinline></video>
+          <canvas id="canvas"></canvas>
+          <div id="overlay">
+            <div id="scan-region"></div>
+          </div>
+          <div id="scan-indicator" class="scan-indicator">Packet</div>
         </div>
-        <div id="scan-indicator" class="scan-indicator">Packet</div>
-      </div>
 
-      <div id="progress-bar">
-        <div id="progress-fill"></div>
-      </div>
+        <div id="progress-bar">
+          <div id="progress-fill"></div>
+        </div>
 
-      <div class="stats-row">
-        <div class="stat-box">
-          <div class="stat-value" id="blocks-received">0</div>
-          <div class="stat-label">Decoded</div>
+        <div class="stats-row">
+          <div class="stat-box">
+            <div class="stat-value" id="blocks-received">0</div>
+            <div class="stat-label">Decoded</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value" id="blocks-total">?</div>
+            <div class="stat-label">Blocks</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value" id="packets-scanned">0 / ?</div>
+            <div class="stat-label">Frames</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-value" id="speed-display">--</div>
+            <div class="stat-label">Speed</div>
+          </div>
         </div>
-        <div class="stat-box">
-          <div class="stat-value" id="blocks-total">?</div>
-          <div class="stat-label">Blocks</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="packets-scanned">0 / ?</div>
-          <div class="stat-label">Frames</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-value" id="speed-display">--</div>
-          <div class="stat-label">Speed</div>
-        </div>
-      </div>
 
-      <div class="status-box">
-        <div class="status-label">Status</div>
-        <div class="status-value" id="status">Initializing camera...</div>
+        <div class="status-box">
+          <div class="status-label">Status</div>
+          <div class="status-value" id="status">Initializing camera...</div>
+        </div>
       </div>
 
       <div id="result-container">

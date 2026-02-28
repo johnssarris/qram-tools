@@ -369,6 +369,7 @@
     const resetBtn     = document.getElementById('reset-btn');
     const errorMsg     = document.getElementById('error-msg');
     const scanIndicator = document.getElementById('scan-indicator');
+    const decScan      = document.getElementById('dec-scan');
 
     // State
     let scanning = true;
@@ -685,6 +686,7 @@
       progressFill.style.width   = '100%';
       triggerCompletionFeedback();
       stopCamera();
+      setDecodeView(false);
     }
 
     function handleFileResult(parsed, totalBytes) {
@@ -701,12 +703,20 @@
       progressFill.style.width        = '100%';
       triggerCompletionFeedback();
       stopCamera();
+      setDecodeView(false);
     }
 
     function stopCamera() {
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
         cameraStream = null;
+      }
+    }
+
+    function setDecodeView(isScanning) {
+      decScan.style.display = isScanning ? '' : 'none';
+      if (!isScanning) {
+        resultContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
 
@@ -733,6 +743,7 @@
       stopSpeedTracking();
       if (decoder) decoder.cancel();
       stopCamera();
+      setDecodeView(true);
 
       packetsScanned = 0;
       totalBytesReceived = 0;
