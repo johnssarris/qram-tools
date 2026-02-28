@@ -590,15 +590,15 @@
         const imageData = ctx.getImageData(0, 0, width, height);
         const results = await ZXingWASM.readBarcodes(imageData, {
           formats: ['QRCode'],
-          tryHarder: false,  // throughput over accuracy — QRAM QR codes are clean
+          tryHarder: true,
           tryRotate: false,  // encoder is always upright
           tryInvert: false,  // skip inversion pass
         });
-        const rawBytes = results[0]?.rawBytes;
+        const result = results[0];
 
-        if (rawBytes && rawBytes.length > 0) {
+        if (result?.isValid && result.bytes.length > 0) {
           try {
-            const packetData = rawBytes;
+            const packetData = result.bytes;
 
             // Skip duplicate consecutive frames (encoder FPS << scan FPS).
             const len = packetData.length;
