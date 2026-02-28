@@ -64,7 +64,7 @@
       let loadedFile = null;
 
       const FILE_MAGIC    = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
-      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB — adjust here to change both the check and the error message
+      const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB — adjust here to change both the check and the error message
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {
