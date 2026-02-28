@@ -12,6 +12,7 @@ const ASSETS = [
   './libs/qram-utils.js',
   './libs/qram-scan.js',
   './libs/zxing-wasm.js',
+  './libs/zxing_reader.wasm',
   './app.js',
 ];
 
