@@ -1,5 +1,5 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-v7';
+const CACHE_NAME = 'qram-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   './libs/qrcode.min.js',
   './libs/qram-utils.js',
   './libs/qram-scan.js',
+  './libs/zxing-wasm.js',
   './app.js',
 ];
 

@@ -1,3 +1,7 @@
+    // Pre-warm ZXing WASM: triggers CDN fetch + WebAssembly compile early,
+    // so the first QR scan attempt has no delay.
+    ZXingWASM.prepareZXingModule();
+
     // ── Zone A: Page-tab controller ───────────────────────────────────────
     const pageTabs = (() => {
       const tabs     = document.querySelectorAll('.page-tab');
@@ -581,11 +585,17 @@
         // Crop to the visible 85% scan region and downscale to 480px.
         const { width, height } = qramScan.cropCapture(video, canvas, ctx);
         const imageData = ctx.getImageData(0, 0, width, height);
-        const code = jsQR(imageData.data, width, height, { inversionAttempts: 'dontInvert' });
+        const results = await ZXingWASM.readBarcodes(imageData, {
+          formats: ['QRCode'],
+          tryHarder: false,  // throughput over accuracy — QRAM QR codes are clean
+          tryRotate: false,  // encoder is always upright
+          tryInvert: false,  // skip inversion pass
+        });
+        const rawBytes = results[0]?.rawBytes;
 
-        if (code && code.binaryData && code.binaryData.length > 0) {
+        if (rawBytes && rawBytes.length > 0) {
           try {
-            const packetData = new Uint8Array(code.binaryData);
+            const packetData = rawBytes;
 
             // Skip duplicate consecutive frames (encoder FPS << scan FPS).
             const len = packetData.length;
