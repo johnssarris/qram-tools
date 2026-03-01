@@ -25,21 +25,11 @@
     });
 
     // Load WASM binary from libs/ (no CDN fetch needed).
-    let zxingReady = false;
     ZXingWASM.setZXingModuleOverrides({
       locateFile: (path, _prefix) =>
         path.endsWith('.wasm') ? `./libs/${path}` : _prefix + path,
     });
-    ZXingWASM.prepareZXingModule()
-      .then(() => { zxingReady = true; })
-      .catch(err => {
-        console.error('ZXing WASM failed to load:', err);
-        const el = document.getElementById('error-msg');
-        if (el) {
-          el.textContent = 'QR scanner failed to load. Please reload the page or check your connection.';
-          el.classList.add('show');
-        }
-      });
+    ZXingWASM.prepareZXingModule();
 
     // ── Zone A: Page-tab controller ───────────────────────────────────────
     const pageTabs = (() => {
