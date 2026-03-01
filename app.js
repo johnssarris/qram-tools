@@ -1,9 +1,45 @@
+    // ── CONFIG: tunables and named constants ────────────────────────────
+    const CONFIG = Object.freeze({
+      // Encoder limits
+      MAX_FILE_SIZE:     1 * 1024 * 1024,  // 1 MB
+      MIN_BLOCK_SIZE:    50,
+      MAX_BLOCK_SIZE:    20000,
+      DEFAULT_BLOCK:     200,
+      MIN_FPS:           1,
+      MAX_FPS:           60,
+      DEFAULT_FPS:       20,
+      QR_WIDTH:          350,
+      QR_ERROR_LEVEL:    'L',
+
+      // Decoder scan
+      CROP_FRACTION:     0.85,
+      DOWNSCALE_PX:      480,
+
+      // UI timing
+      FLASH_DURATION_MS:       150,
+      COPY_CONFIRM_MS:         2000,
+      SPEED_UPDATE_INTERVAL:   500,
+
+      // File protocol magic: "QRAMF"
+      FILE_MAGIC: new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]),
+    });
+
     // Load WASM binary from libs/ (no CDN fetch needed).
+    let zxingReady = false;
     ZXingWASM.setZXingModuleOverrides({
       locateFile: (path, _prefix) =>
         path.endsWith('.wasm') ? `./libs/${path}` : _prefix + path,
     });
-    ZXingWASM.prepareZXingModule();
+    ZXingWASM.prepareZXingModule()
+      .then(() => { zxingReady = true; })
+      .catch(err => {
+        console.error('ZXing WASM failed to load:', err);
+        const el = document.getElementById('error-msg');
+        if (el) {
+          el.textContent = 'QR scanner failed to load. Please reload the page or check your connection.';
+          el.classList.add('show');
+        }
+      });
 
     // ── Zone A: Page-tab controller ───────────────────────────────────────
     const pageTabs = (() => {
@@ -63,8 +99,8 @@
       let currentMode = 'text';
       let loadedFile = null;
 
-      const FILE_MAGIC    = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
-      const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB — adjust here to change both the check and the error message
+      const FILE_MAGIC    = CONFIG.FILE_MAGIC;
+      const MAX_FILE_SIZE = CONFIG.MAX_FILE_SIZE;
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {
@@ -158,6 +194,9 @@
 
       elBlk.disabled = elAutoBlk.checked;
       elTxt.addEventListener('input', updateDataSize);
+      elCompress.addEventListener('change', updateDataSize);
+
+      let _compressPreviewTimer = null;
 
       function updateDataSize() {
         let size = 0;
@@ -172,9 +211,32 @@
         if (size > 0) {
           elDataSize.textContent = `Data: ${formatBytes(size)}`;
           if (elAutoBlk.checked) elBlk.value = autoBlockSize(size);
+          // Show compression preview (debounced for text input)
+          if (elCompress.checked && window.qramCompress) {
+            if (currentMode === 'text') {
+              clearTimeout(_compressPreviewTimer);
+              _compressPreviewTimer = setTimeout(() => updateCompressionPreview(size), 300);
+            } else {
+              updateCompressionPreview(size);
+            }
+          }
         } else {
           elDataSize.textContent = '';
         }
+      }
+
+      async function updateCompressionPreview(rawSize) {
+        const payload = buildPayload();
+        if (!payload || payload.length === 0) return;
+        try {
+          const cr = await qramCompress.maybeCompress(payload);
+          if (cr.compressed) {
+            const pct = ((1 - cr.sentSize / cr.originalSize) * 100).toFixed(0);
+            elDataSize.textContent = `Data: ${formatBytes(cr.originalSize)} → ${formatBytes(cr.sentSize)} (gz, −${pct}%)`;
+          } else {
+            elDataSize.textContent = `Data: ${formatBytes(cr.sentSize)} (won't compress)`;
+          }
+        } catch (_) {}
       }
 
       // --- Helpers ---
@@ -256,15 +318,10 @@
         if (elCompress.checked && window.qramCompress) {
           const cr = await qramCompress.maybeCompress(data);
           sendData = cr.data;
-          if (cr.compressed) {
-            elDataSize.textContent = `Data: ${formatBytes(cr.originalSize)} \u2192 ${formatBytes(cr.sentSize)} (gz)`;
-          } else {
-            elDataSize.textContent = `Data: ${formatBytes(cr.sentSize)} (no gz)`;
-          }
         }
 
-        const fps       = Math.max(1, Math.min(60, parseInt(elFPS.value, 10) || 6));
-        const blockSize = Math.max(50, Math.min(20000, parseInt(elBlk.value, 10) || 300));
+        const fps       = Math.max(CONFIG.MIN_FPS, Math.min(CONFIG.MAX_FPS, parseInt(elFPS.value, 10) || CONFIG.DEFAULT_FPS));
+        const blockSize = Math.max(CONFIG.MIN_BLOCK_SIZE, Math.min(CONFIG.MAX_BLOCK_SIZE, parseInt(elBlk.value, 10) || CONFIG.DEFAULT_BLOCK));
         const delay     = 1000 / fps;
 
         let enc;
@@ -299,9 +356,9 @@
 
             try {
               await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
-                width: 350,
+                width: CONFIG.QR_WIDTH,
                 margin: 1,
-                errorCorrectionLevel: 'L'
+                errorCorrectionLevel: CONFIG.QR_ERROR_LEVEL,
               });
             } catch (e) {
               showError('QR render error (QRCode.toCanvas failed).', e);
@@ -393,8 +450,7 @@
     // File transfer state
     let decodedFileData = null;
 
-    // File protocol magic: "QRAMF"
-    const FILE_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]);
+    const FILE_MAGIC = CONFIG.FILE_MAGIC;
 
     // --- Helpers ---
     const { formatBytes, downloadBlob } = qramUtils;
@@ -482,7 +538,7 @@
 
     function startSpeedTracking() {
       if (speedInterval) return;
-      speedInterval = setInterval(updateSpeed, 500);
+      speedInterval = setInterval(updateSpeed, CONFIG.SPEED_UPDATE_INTERVAL);
     }
 
     function stopSpeedTracking() {
@@ -557,7 +613,7 @@
     function flashIndicator() {
       scanIndicator.classList.add('flash');
       if (flashTimeout) clearTimeout(flashTimeout);
-      flashTimeout = setTimeout(() => scanIndicator.classList.remove('flash'), 150);
+      flashTimeout = setTimeout(() => scanIndicator.classList.remove('flash'), CONFIG.FLASH_DURATION_MS);
     }
 
     function scheduleProgressUpdate() {
@@ -803,6 +859,27 @@
     // Decode is the default active tab — start immediately
     decoderStarted = true;
     init();
+
+    // ── Theme toggle (dark ↔ light) ─────────────────────────────────────
+    (() => {
+      const STORAGE_KEY = 'qram-theme';
+      const root = document.documentElement;
+      const btn  = document.getElementById('theme-toggle');
+
+      // Restore saved preference (default: dark)
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved === 'light') root.setAttribute('data-theme', 'light');
+
+      btn.addEventListener('click', () => {
+        const isLight = root.getAttribute('data-theme') === 'light';
+        const next = isLight ? 'dark' : 'light';
+        root.setAttribute('data-theme', next);
+        localStorage.setItem(STORAGE_KEY, next);
+        // Update theme-color meta for iOS status bar
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = next === 'light' ? '#f0f2f5' : '#1a1a2e';
+      });
+    })();
 
     // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
     document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });

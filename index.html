@@ -29,6 +29,61 @@
       --accent-green:   #00ff88;  /* success / received */
     }
 
+    /* ── Light theme overrides ─────────────────────────────────────────── */
+    [data-theme="light"] {
+      --bg-deep:      #f0f2f5;
+      --bg-mid:       #ffffff;
+      --bg-dark:      #e8ebef;
+      --accent-blue:  #0094cc;
+      --accent-green: #00994d;
+    }
+
+    [data-theme="light"] body { color: #222; }
+    [data-theme="light"] .page-tab { color: #666; border-color: #ccc; }
+    [data-theme="light"] .page-tab:not(.active):hover { background: #e4eaf0; color: #333; }
+    [data-theme="light"] .status-label { color: #666; }
+    [data-theme="light"] .stat-label { color: #666; }
+    [data-theme="light"] #result { background: #f7f8fa; color: #006644; border-color: #ccc; }
+    [data-theme="light"] .btn-secondary { background: #e0e3e8; color: #222; }
+    [data-theme="light"] #panel-encode textarea { background: #f7f8fa; color: #006644; border-color: #ccc; }
+    [data-theme="light"] .row label { color: #444; }
+    [data-theme="light"] .row input[type="number"] { background: #f7f8fa; border-color: #ccc; color: #222; }
+    [data-theme="light"] #drop-zone { background: #f7f8fa; border-color: #bbb; }
+    [data-theme="light"] #drop-zone .drop-icon { color: #999; }
+    [data-theme="light"] #drop-zone .drop-text { color: #666; }
+    [data-theme="light"] #drop-zone .drop-hint { color: #999; }
+    [data-theme="light"] #err { background: #fff0f0; border-color: #e0a0a0; color: #a00; }
+    [data-theme="light"] #data-size { color: #666; }
+    [data-theme="light"] .auto-label { color: #444; }
+    [data-theme="light"] #stats { color: #666; }
+    [data-theme="light"] #speed-display { color: var(--accent-blue); }
+
+    /* ── Theme toggle button ───────────────────────────────────────────── */
+    .page-tabs-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    .page-tabs-row .page-tabs { flex: 1; margin-bottom: 0; }
+
+    .theme-toggle {
+      width: 38px; height: 38px;
+      border-radius: 10px;
+      border: 1px solid #333;
+      background: var(--bg-mid);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; line-height: 1;
+      transition: background .15s, border-color .15s;
+      flex-shrink: 0;
+    }
+
+    .theme-toggle:hover { border-color: var(--accent-blue); }
+
+    [data-theme="light"] .theme-toggle { border-color: #ccc; }
+    [data-theme="light"] .theme-toggle:hover { border-color: var(--accent-blue); }
+
+    /* Show/hide the correct icon */
+    .theme-icon--light { display: none; }
+    [data-theme="light"] .theme-icon--dark  { display: none; }
+    [data-theme="light"] .theme-icon--light { display: inline; }
+
     /* ── Reset & base ─────────────────────────────────────────────────── */
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -46,7 +101,7 @@
     }
 
     /* ── Page-level Encode / Decode tabs ──────────────────────────────── */
-    .page-tabs { display: flex; gap: 0; margin-bottom: 20px; }
+    .page-tabs { display: flex; gap: 0; }
 
     .page-tab {
       flex: 1;
@@ -282,9 +337,15 @@
   <div class="container">
 
     <!-- Page-level tab switcher -->
-    <div class="page-tabs" role="tablist">
-      <button class="page-tab"        data-page="encode" role="tab">Encode</button>
-      <button class="page-tab active" data-page="decode" role="tab">Decode</button>
+    <div class="page-tabs-row">
+      <div class="page-tabs" role="tablist">
+        <button class="page-tab"        data-page="encode" role="tab">Encode</button>
+        <button class="page-tab active" data-page="decode" role="tab">Decode</button>
+      </div>
+      <button id="theme-toggle" class="theme-toggle" aria-label="Toggle light/dark mode">
+        <span class="theme-icon theme-icon--dark">&#9790;</span>
+        <span class="theme-icon theme-icon--light">&#9728;</span>
+      </button>
     </div>
 
     <!-- ── Encoder panel (hidden by default) ──────────────────────────── -->
