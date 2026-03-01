@@ -565,6 +565,7 @@
           video: { facingMode: 'environment', frameRate: { ideal: 30 }, height: { ideal: 1080 } },
         });
         video.srcObject = cameraStream;
+        setDecodeView(true);
         video.setAttribute('playsinline', true);
 
         await new Promise((resolve, reject) => {
@@ -586,6 +587,7 @@
       } catch (err) {
         scanning = false;
         if (decoder) decoder.cancel();
+        setDecodeView(true);
         showError('Camera access denied. Please allow camera permissions.');
         console.error(err);
       }
@@ -786,7 +788,6 @@
       stopSpeedTracking();
       if (decoder) decoder.cancel();
       stopCamera();
-      setDecodeView(true);
 
       packetsScanned = 0;
       totalBytesReceived = 0;
