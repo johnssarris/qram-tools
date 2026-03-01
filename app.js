@@ -306,7 +306,7 @@
 
         let sendData = data;
         if (elCompress.checked && window.qramCompress) {
-          const cr = await qramCompress.maybeCompress(data);
+          const cr = await qramPerf.timeAsync('compress', () => qramCompress.maybeCompress(data));
           sendData = cr.data;
         }
 
@@ -341,27 +341,33 @@
 
         try {
           while (!cancelRequested) {
+            qramPerf.start('encode-frame');
             const { value: pkt, done } = await reader.read();
-            if (done) break;
+            if (done) { qramPerf.end('encode-frame'); break; }
 
             try {
+              qramPerf.start('qr-render');
               await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
                 width: CONFIG.QR_WIDTH,
                 margin: 1,
                 errorCorrectionLevel: CONFIG.QR_ERROR_LEVEL,
               });
+              qramPerf.end('qr-render');
             } catch (e) {
+              qramPerf.end('qr-render');
               showError('QR render error (QRCode.toCanvas failed).', e);
               break;
             }
 
             n++;
             elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks, packet #${n}`;
+            qramPerf.end('encode-frame');
             await new Promise(ok => setTimeout(ok, delay));
           }
         } catch (e) {
           showError('Streaming loop error.', e);
         } finally {
+          qramPerf.report();
           try { await reader?.cancel(); } catch (e) {}
           try { await stream?.cancel?.(); } catch (e) {}
           reader = null;
@@ -632,15 +638,22 @@
       if (!scanning || gen !== scanGen) return;
 
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        qramPerf.start('scan-frame');
+
         // Crop to the visible 85% scan region and downscale to 480px.
+        qramPerf.start('scan-crop');
         const { width, height } = qramScan.cropCapture(video, canvas, ctx);
         const imageData = ctx.getImageData(0, 0, width, height);
+        qramPerf.end('scan-crop');
+
+        qramPerf.start('scan-decode');
         const results = await ZXingWASM.readBarcodes(imageData, {
           formats: ['QRCode'],
           tryHarder: true,
           tryRotate: false,  // encoder is always upright
           tryInvert: false,  // skip inversion pass
         });
+        qramPerf.end('scan-decode');
         const result = results[0];
 
         if (result?.isValid && result.bytes.length > 0) {
@@ -656,7 +669,9 @@
             if (sig !== lastPacketSignature) {
               lastPacketSignature = sig;
 
+              qramPerf.start('decode-enqueue');
               const progress = await decoder.enqueue(packetData);
+              qramPerf.end('decode-enqueue');
               packetsScanned++;
               totalBytesReceived += packetData.length;
               flashIndicator();
@@ -677,6 +692,8 @@
             // Ignore invalid packets silently
           }
         }
+
+        qramPerf.end('scan-frame');
       }
 
       if (scanning && gen === scanGen) {
@@ -688,6 +705,7 @@
     async function onComplete(result) {
       scanning = false;
       stopSpeedTracking();
+      qramPerf.report();
 
       let data     = result.data;
       let wireSize = data.length;
