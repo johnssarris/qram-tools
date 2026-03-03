@@ -899,3 +899,14 @@
     // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
     document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
+    // ── Perf report download buttons ─────────────────────────────────────
+    // Only shown when ?perf=1 is active — invisible to normal users.
+    if (window.qramPerf?.isEnabled) {
+      const perfEncBtn = document.getElementById('perf-dl-enc');
+      const perfDecBtn = document.getElementById('perf-dl-dec');
+      perfEncBtn.style.display = '';
+      perfDecBtn.style.display = '';
+      perfEncBtn.addEventListener('click', () => qramPerf.download());
+      perfDecBtn.addEventListener('click', () => qramPerf.download());
+    }
