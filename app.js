@@ -338,6 +338,14 @@
         const blocks = Math.ceil(sendData.length / blockSize);
         const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
         elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
+        qramPerf.sessionStart('encode', {
+          fps,
+          blockSize,
+          compress:     elCompress.checked,
+          payloadBytes: data.length,
+          wireBytes:    sendData.length,
+          blocks,
+        });
 
         try {
           while (!cancelRequested) {
@@ -367,7 +375,7 @@
         } catch (e) {
           showError('Streaming loop error.', e);
         } finally {
-          qramPerf.report();
+          qramPerf.sessionEnd({ packetsSent: n });
           try { await reader?.cancel(); } catch (e) {}
           try { await stream?.cancel?.(); } catch (e) {}
           reader = null;
@@ -547,6 +555,10 @@
     // Initialize
     async function init() {
       scanning = true;
+      qramPerf.sessionStart('decode', {
+        cropFraction: CONFIG.CROP_FRACTION,
+        downscalePx:  CONFIG.DOWNSCALE_PX,
+      });
 
       decoder = new qram.Decoder();
       decodePromise = decoder.decode();
@@ -705,7 +717,12 @@
     async function onComplete(result) {
       scanning = false;
       stopSpeedTracking();
-      qramPerf.report();
+      qramPerf.sessionEnd({
+        packetsScanned,
+        totalBytesReceived,
+        blocksReceived: lastReceivedBlocks,
+        totalBlocks:    lastTotalBlocks,
+      });
 
       let data     = result.data;
       let wireSize = data.length;
@@ -899,3 +916,14 @@
     // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
     document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
+    // ── Perf report download buttons ─────────────────────────────────────
+    // Only shown when ?perf=1 is active — invisible to normal users.
+    if (window.qramPerf?.isEnabled) {
+      const perfEncBtn = document.getElementById('perf-dl-enc');
+      const perfDecBtn = document.getElementById('perf-dl-dec');
+      perfEncBtn.style.display = '';
+      perfDecBtn.style.display = '';
+      perfEncBtn.addEventListener('click', () => qramPerf.download());
+      perfDecBtn.addEventListener('click', () => qramPerf.download());
+    }
