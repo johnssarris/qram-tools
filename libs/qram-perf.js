@@ -4,28 +4,33 @@
 // Access via: window.qramPerf
 //
 // API:
-//   qramPerf.start(label)              — begin timing a synchronous section
-//   qramPerf.end(label)                — end timing, record sample
-//   qramPerf.timeAsync(label, asyncFn) — time an async function, returns its result
-//   qramPerf.report()                  — console.table of calls/min/mean/p50/p95/p99/max
-//   qramPerf.download()                — download JSON report via qramUtils.downloadJson
-//   qramPerf.reset()                   — clear all collected samples
-//   qramPerf.isEnabled                 — true when ?perf=1 is active
+//   qramPerf.sessionStart(type, settings) — begin a named transfer session
+//   qramPerf.sessionEnd(result)           — close session, log stats, push to history
+//   qramPerf.start(label)                 — begin timing a synchronous section
+//   qramPerf.end(label)                   — end timing, record sample
+//   qramPerf.timeAsync(label, asyncFn)    — time an async function, returns its result
+//   qramPerf.report()                     — console.table of all completed sessions
+//   qramPerf.download()                   — download JSON of all sessions via qramUtils
+//   qramPerf.reset()                      — clear all sessions and current state
+//   qramPerf.isEnabled                    — true when ?perf=1 is active
 window.qramPerf = (() => {
   const enabled = new URLSearchParams(location.search).get('perf') === '1';
 
   if (!enabled) {
     const noop = () => {};
-    const noopAsync = (_label, fn) => fn();
-    return { isEnabled: false, start: noop, end: noop, timeAsync: noopAsync, report: noop, download: noop, reset: noop };
+    const noopAsync = (_l, fn) => fn();
+    return { isEnabled: false, start: noop, end: noop, timeAsync: noopAsync,
+             sessionStart: noop, sessionEnd: noop, report: noop, download: noop, reset: noop };
   }
 
-  const MAX_SAMPLES = 1000;   // ring buffer cap per label to bound memory use
-  const _data   = {};         // { label: { samples: Float64Array, head, count } }
-  const _active = {};         // { label: startTime (performance.now) }
+  const MAX_SAMPLES = 1000;   // ring buffer cap per label to bound memory
+  const _sessions = [];       // completed: { index, type, startedAt, endedAt, settings, result, durationMs, stats }
+  let   _current  = null;     // in-progress: { type, settings, startedAt, startTime, data }
+  const _active   = {};       // label → performance.now() start time
 
   function _bucket(label) {
-    return _data[label] ??= { samples: new Float64Array(MAX_SAMPLES), head: 0, count: 0 };
+    if (!_current) return { samples: new Float64Array(MAX_SAMPLES), head: 0, count: 0 };
+    return _current.data[label] ??= { samples: new Float64Array(MAX_SAMPLES), head: 0, count: 0 };
   }
 
   function start(label) {
@@ -66,20 +71,46 @@ window.qramPerf = (() => {
     };
   }
 
-  function report() {
-    const rows = Object.fromEntries(
-      Object.entries(_data).map(([k, d]) => [k, _stats(d)])
+  function sessionStart(type, settings) {
+    _current = { type, settings, startedAt: new Date().toISOString(),
+                 startTime: performance.now(), data: {} };
+  }
+
+  function sessionEnd(result = {}) {
+    if (!_current) return;
+    const durationMs = +(performance.now() - _current.startTime).toFixed(1);
+    const stats = Object.fromEntries(
+      Object.entries(_current.data).map(([k, d]) => [k, _stats(d)])
     );
-    console.log('[qramPerf] Performance Report (all times in ms)');
-    console.table(rows);
-    return rows;
+    const session = {
+      index:      _sessions.length + 1,
+      type:       _current.type,
+      startedAt:  _current.startedAt,
+      endedAt:    new Date().toISOString(),
+      settings:   _current.settings,
+      result,
+      durationMs,
+      stats,
+    };
+    _sessions.push(session);
+    _current = null;
+    console.log(`[qramPerf] Session ${session.index} (${session.type}) — ${durationMs}ms`);
+    console.table(stats);
+  }
+
+  function report() {
+    if (!_sessions.length) { console.log('[qramPerf] No completed sessions yet.'); return; }
+    for (const s of _sessions) {
+      console.group(`[qramPerf] Session ${s.index} — ${s.type} (${s.durationMs}ms)`);
+      console.log('settings:', s.settings);
+      console.log('result:',   s.result);
+      console.table(s.stats);
+      console.groupEnd();
+    }
   }
 
   function download() {
-    const rows = Object.fromEntries(
-      Object.entries(_data).map(([k, d]) => [k, _stats(d)])
-    );
-    const json = JSON.stringify({ timestamp: new Date().toISOString(), stats: rows }, null, 2);
+    const json = JSON.stringify({ exportedAt: new Date().toISOString(), sessions: _sessions }, null, 2);
     const ts   = window.qramUtils?.getTimestampStr?.() ?? Date.now();
     if (window.qramUtils?.downloadJson) {
       qramUtils.downloadJson(json, `qram-perf-${ts}.json`);
@@ -92,10 +123,11 @@ window.qramPerf = (() => {
   }
 
   function reset() {
-    for (const k of Object.keys(_data))   delete _data[k];
+    _sessions.length = 0;
+    _current = null;
     for (const k of Object.keys(_active)) delete _active[k];
   }
 
   console.log('[qramPerf] enabled — collecting timing data. Call qramPerf.report() anytime.');
-  return { isEnabled: true, start, end, timeAsync, report, download, reset };
+  return { isEnabled: true, start, end, timeAsync, sessionStart, sessionEnd, report, download, reset };
 })();

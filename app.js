@@ -338,6 +338,14 @@
         const blocks = Math.ceil(sendData.length / blockSize);
         const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
         elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
+        qramPerf.sessionStart('encode', {
+          fps,
+          blockSize,
+          compress:     elCompress.checked,
+          payloadBytes: data.length,
+          wireBytes:    sendData.length,
+          blocks,
+        });
 
         try {
           while (!cancelRequested) {
@@ -367,7 +375,7 @@
         } catch (e) {
           showError('Streaming loop error.', e);
         } finally {
-          qramPerf.report();
+          qramPerf.sessionEnd({ packetsSent: n });
           try { await reader?.cancel(); } catch (e) {}
           try { await stream?.cancel?.(); } catch (e) {}
           reader = null;
@@ -547,6 +555,10 @@
     // Initialize
     async function init() {
       scanning = true;
+      qramPerf.sessionStart('decode', {
+        cropFraction: CONFIG.CROP_FRACTION,
+        downscalePx:  CONFIG.DOWNSCALE_PX,
+      });
 
       decoder = new qram.Decoder();
       decodePromise = decoder.decode();
@@ -705,7 +717,12 @@
     async function onComplete(result) {
       scanning = false;
       stopSpeedTracking();
-      qramPerf.report();
+      qramPerf.sessionEnd({
+        packetsScanned,
+        totalBytesReceived,
+        blocksReceived: lastReceivedBlocks,
+        totalBlocks:    lastTotalBlocks,
+      });
 
       let data     = result.data;
       let wireSize = data.length;
