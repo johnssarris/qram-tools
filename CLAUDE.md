@@ -62,5 +62,5 @@ Enable with `?perf=1`. Labels: `encode-frame`, `qr-render`, `scan-frame`, `scan-
 
 ## Branches
 
-- `main` — production (GitHub Pages deployment target)
-- `py_encode` — active development (Python encoder port in progress)
+- `main` — production (GitHub Pages deployment target); includes both encoder and decoder
+- `py_encode` — encoder-only branch; decoder panel and all decoder code have been removed

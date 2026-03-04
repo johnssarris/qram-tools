@@ -18,7 +18,6 @@
   <script src="./libs/qram-perf.js"></script>
   <!-- Encoder -->
   <script src="./libs/qrcode.min.js"></script>
-  <script src="./libs/qram-scan.js"></script>
 
   <style>
     /* ── Design tokens ────────────────────────────────────────────────── */
@@ -40,11 +39,6 @@
     }
 
     [data-theme="light"] body { color: #222; }
-    [data-theme="light"] .page-tab { color: #666; border-color: #ccc; }
-    [data-theme="light"] .page-tab:not(.active):hover { background: #e4eaf0; color: #333; }
-    [data-theme="light"] .status-label { color: #666; }
-    [data-theme="light"] .stat-label { color: #666; }
-    [data-theme="light"] #result { background: #f7f8fa; color: #006644; border-color: #ccc; }
     [data-theme="light"] .btn-secondary { background: #e0e3e8; color: #222; }
     [data-theme="light"] #panel-encode textarea { background: #f7f8fa; color: #006644; border-color: #ccc; }
     [data-theme="light"] .row label { color: #444; }
@@ -57,11 +51,9 @@
     [data-theme="light"] #data-size { color: #666; }
     [data-theme="light"] .auto-label { color: #444; }
     [data-theme="light"] #stats { color: #666; }
-    [data-theme="light"] #speed-display { color: var(--accent-blue); }
 
     /* ── Theme toggle button ───────────────────────────────────────────── */
-    .page-tabs-row { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-    .page-tabs-row .page-tabs { flex: 1; margin-bottom: 0; }
+    .toolbar { display: flex; justify-content: flex-end; margin-bottom: 20px; }
 
     .theme-toggle {
       width: 38px; height: 38px;
@@ -101,125 +93,7 @@
       margin: 0 auto;
     }
 
-    /* ── Page-level Encode / Decode tabs ──────────────────────────────── */
-    .page-tabs { display: flex; gap: 0; }
-
-    .page-tab {
-      flex: 1;
-      text-align: center;
-      padding: 12px 0;
-      background: var(--bg-mid);
-      color: #888;
-      border: 1px solid #333;
-      cursor: pointer;
-      font-size: 15px;
-      font-weight: 700;
-      transition: background .15s, color .15s, border-color .15s;
-      font-family: inherit;
-    }
-
-    .page-tab:first-child { border-radius: 10px 0 0 10px; }
-    .page-tab:last-child  { border-radius: 0 10px 10px 0; }
-
-    .page-tab.active { background: var(--accent-blue); color: #000; border-color: var(--accent-blue); }
-    .page-tab:not(.active):hover { background: #1e2d4a; color: #ccc; }
-
-    /* ── Decoder styles ───────────────────────────────────────────────── */
-    #video-container {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 1;
-      background: #000;  /* true black for camera viewfinder */
-      border-radius: 12px;
-      overflow: hidden;
-      margin-bottom: 15px;
-    }
-
-    #video { width: 100%; height: 100%; object-fit: cover; }
-    #canvas { display: none; }
-
-    #overlay {
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-    }
-
-    #scan-region {
-      width: 75%; height: 75%;
-      border: 3px solid var(--accent-blue);
-      border-radius: 12px;
-      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
-    }
-
-    .status-box {
-      background: var(--bg-mid);
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 12px;
-    }
-
-    .status-label { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
-    .status-value { font-size: 1.1rem; font-weight: 600; }
-
-    #progress-bar {
-      width: 100%; height: 10px;
-      background: var(--bg-mid);
-      border-radius: 5px;
-      overflow: hidden;
-      margin-bottom: 12px;
-    }
-
-    #progress-fill {
-      height: 100%;
-      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
-      width: 0%;
-      transition: width 0.2s ease;
-    }
-
-    .stats-row { display: flex; gap: 10px; margin-bottom: 12px; }
-
-    .stat-box {
-      flex: 1;
-      background: var(--bg-mid);
-      border-radius: 10px;
-      padding: 12px;
-      text-align: center;
-    }
-
-    .stat-value { font-size: 1.3rem; font-weight: bold; color: var(--accent-blue); }
-    .stat-label { font-size: 0.7rem; color: #888; margin-top: 3px; }
-    #speed-display { font-size: 0.85rem; white-space: pre-line; line-height: 1.4; }
-
-    #result-container {
-      display: none;
-      background: var(--bg-mid);
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 12px;
-    }
-
-    #result-container.show { display: block; }
-
-    #result {
-      width: 100%; height: 180px;
-      background: var(--bg-dark);
-      border: 1px solid #333;
-      border-radius: 8px;
-      color: var(--accent-green);
-      font-family: 'Monaco', 'Menlo', monospace;
-      font-size: 11px;
-      padding: 10px;
-      resize: vertical;
-    }
-
-    .file-result { text-align: center; padding: 20px 10px; }
-    .file-result-icon { font-size: 48px; margin-bottom: 10px; }
-    .file-result-name { font-size: 1rem; font-weight: 600; color: var(--accent-green); word-break: break-all; margin-bottom: 5px; }
-    .file-result-size { font-size: 0.85rem; color: #888; }
-
+    /* ── Button styles ─────────────────────────────────────────────────── */
     .btn {
       width: 100%; padding: 14px;
       border: none; border-radius: 10px;
@@ -229,29 +103,9 @@
     }
 
     .btn:active { transform: scale(0.98); }
-    .btn-success   { background: var(--accent-green); color: #000; }
     .btn-secondary { background: var(--bg-mid); color: #eee; }
 
-    #error-msg {
-      background: #ff4444; color: #fff;
-      padding: 10px 15px; border-radius: 8px;
-      margin-bottom: 12px; display: none; font-size: 0.9rem;
-    }
-
-    #error-msg.show { display: block; }
-
-    .scan-indicator {
-      position: absolute; bottom: 10px; left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0, 255, 136, 0.9); color: #000;  /* intentional opaque green flash */
-      padding: 5px 12px; border-radius: 20px;
-      font-size: 0.75rem; font-weight: 600;
-      opacity: 0; transition: opacity 0.1s;
-    }
-
-    .scan-indicator.flash { opacity: 1; }
-
-    /* ── Encoder styles (scoped to #panel-encode) ─────────────────────── */
+    /* ── Encoder styles ────────────────────────────────────────────────── */
     #panel-encode { font-family: system-ui, sans-serif; }
 
     #panel-encode h2 { margin: 0 0 14px 0; font-size: 1.2rem; }
@@ -337,20 +191,15 @@
 <body>
   <div class="container">
 
-    <!-- Page-level tab switcher -->
-    <div class="page-tabs-row">
-      <div class="page-tabs" role="tablist">
-        <button class="page-tab"        data-page="encode" role="tab">Encode</button>
-        <button class="page-tab active" data-page="decode" role="tab">Decode</button>
-      </div>
+    <div class="toolbar">
       <button id="theme-toggle" class="theme-toggle" aria-label="Toggle light/dark mode">
         <span class="theme-icon theme-icon--dark">&#9790;</span>
         <span class="theme-icon theme-icon--light">&#9728;</span>
       </button>
     </div>
 
-    <!-- ── Encoder panel (hidden by default) ──────────────────────────── -->
-    <div id="panel-encode" style="display:none">
+    <!-- ── Encoder panel ─────────────────────────────────────────────── -->
+    <div id="panel-encode">
 
       <!-- Setup view: shown before encoding starts -->
       <div id="enc-setup">
@@ -402,85 +251,8 @@
 
     </div><!-- /#panel-encode -->
 
-    <!-- ── Decoder panel (visible by default) ─────────────────────────── -->
-    <div id="panel-decode">
-      <div id="error-msg"></div>
-
-      <div id="dec-scan">
-        <div id="video-container">
-          <video id="video" autoplay playsinline></video>
-          <canvas id="canvas"></canvas>
-          <div id="overlay">
-            <div id="scan-region"></div>
-          </div>
-          <div id="scan-indicator" class="scan-indicator">Packet</div>
-        </div>
-
-        <div id="progress-bar">
-          <div id="progress-fill"></div>
-        </div>
-
-        <div class="stats-row">
-          <div class="stat-box">
-            <div class="stat-value" id="blocks-received">0</div>
-            <div class="stat-label">Decoded</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value" id="blocks-total">?</div>
-            <div class="stat-label">Blocks</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value" id="packets-scanned">0 / ?</div>
-            <div class="stat-label">Frames</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-value" id="speed-display">--</div>
-            <div class="stat-label">Speed</div>
-          </div>
-        </div>
-
-        <div class="status-box">
-          <div class="status-label">Status</div>
-          <div class="status-value" id="status">Initializing camera...</div>
-        </div>
-      </div>
-
-      <div id="result-container">
-        <div class="status-label" id="result-label">Decoded Content</div>
-        <div id="text-result">
-          <textarea id="result" readonly></textarea>
-        </div>
-        <div id="file-result" class="file-result" style="display:none">
-          <div class="file-result-icon">📄</div>
-          <div class="file-result-name" id="file-result-name"></div>
-          <div class="file-result-size" id="file-result-size"></div>
-        </div>
-      </div>
-
-      <button id="copy-btn" class="btn btn-success" style="display: none;">
-        Copy to Clipboard
-      </button>
-
-      <button id="download-btn" class="btn btn-success" style="display: none;">
-        Download File
-      </button>
-
-      <button id="save-btn" class="btn btn-success" style="display: none;">
-        Save as File
-      </button>
-
-      <button id="reset-btn" class="btn btn-secondary">
-        Reset &amp; Scan Again
-      </button>
-
-      <button id="perf-dl-dec" class="btn btn-secondary" style="display:none">
-        &#128202; Download Perf Report
-      </button>
-    </div><!-- /#panel-decode -->
-
   </div><!-- /.container -->
 
-  <script src="./libs/zxing-wasm.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>
