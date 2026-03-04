@@ -207,12 +207,12 @@ var QRCode = function(t) {
       off += len; maxLen = Math.max(maxLen, len);
     }
     var out = new Uint8Array(total), pos = 0;
-    for (var ii = 0; ii < maxLen; ii++)
+    for (var di = 0; di < maxLen; di++)
       for (var jj = 0; jj < numBlocks; jj++)
-        if (ii < dataBlocks[jj].length) out[pos++] = dataBlocks[jj][ii];
-    for (var ii = 0; ii < ecPerBlock; ii++)
+        if (di < dataBlocks[jj].length) out[pos++] = dataBlocks[jj][di];
+    for (var ei = 0; ei < ecPerBlock; ei++)
       for (var jj = 0; jj < numBlocks; jj++)
-        out[pos++] = ecBlocks[jj][ii];
+        out[pos++] = ecBlocks[jj][ei];
     return out;
   }
 
@@ -298,6 +298,7 @@ var QRCode = function(t) {
         var w = o.width && o.width >= 21 ? o.width : void 0;
         var scale = w ? w / (mat.size + 2 * margin) : (o.scale || 4);
         var size = Math.floor((mat.size + 2 * margin) * scale);
+        r.height = size, r.width = size;
         var ctx = r.getContext("2d");
         var img = ctx.createImageData(size, size), px = img.data;
         var s = margin * scale;
@@ -309,9 +310,6 @@ var QRCode = function(t) {
             var v = dark ? 0 : 255;
             px[g++] = v, px[g++] = v, px[g++] = v, px[g] = 255;
           }
-        ctx.clearRect(0, 0, r.width, r.height);
-        r.height = size, r.width = size;
-        r.style.height = size + "px", r.style.width = size + "px";
         ctx.putImageData(img, 0, 0);
         e(r)
       } catch (t) { a(t) }

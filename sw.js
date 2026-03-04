@@ -1,13 +1,11 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-v31';
+const CACHE_NAME = 'qram-v32';
 const ASSETS = [
-  './',
   './index.html',
   './manifest.json',
   './libs/qram.js',
   './libs/qram-compress.js',
   './libs/qrcode.js',
-  './libs/qram-utils.js',
   './libs/app.js',
 ];
 

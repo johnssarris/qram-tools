@@ -44,7 +44,11 @@
       let loadedFile = null;
 
       const enc = new TextEncoder();
-      const { formatBytes } = qramUtils;
+      function formatBytes(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+        return (n / 1048576).toFixed(1) + ' MB';
+      }
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {

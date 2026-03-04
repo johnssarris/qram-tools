@@ -7,7 +7,6 @@ window.qramCompress = (() => {
   // ── Envelope format ───────────────────────────────────────────────────────
   const COMPRESS_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x43]); // "QRAMC"
   const HEADER_LEN     = 10;
-  const ALGO_GZIP      = 1;
   // ── Concatenate an array of Uint8Arrays ──────────────────────────────────
   function concatChunks(chunks) {
     let total = 0;
@@ -36,7 +35,7 @@ window.qramCompress = (() => {
   function _buildEnvelope(compressed, originalLen) {
     const out = new Uint8Array(HEADER_LEN + compressed.length);
     out.set(COMPRESS_MAGIC, 0);
-    out[5] = ALGO_GZIP;
+    out[5] = 1; // gzip
     out[6] = (originalLen >>> 24) & 0xFF;
     out[7] = (originalLen >>> 16) & 0xFF;
     out[8] = (originalLen >>>  8) & 0xFF;
