@@ -10,11 +10,10 @@
   <title>QRAM</title>
   <link rel="manifest" href="manifest.json">
 
-  <!-- Shared libraries -->
+  <!-- Libraries -->
   <script src="./libs/qram.min.js"></script>
-<script src="./libs/qram-compress.js"></script>
+  <script src="./libs/qram-compress.js"></script>
   <script src="./libs/qram-utils.js"></script>
-<!-- Encoder -->
   <script src="./libs/qrcode.min.js"></script>
 
   <style>
@@ -101,7 +100,6 @@
     }
 
     .btn:active { transform: scale(0.98); }
-    .btn-secondary { background: var(--bg-mid); color: #eee; }
 
     /* ── Encoder styles ────────────────────────────────────────────────── */
     #panel-encode { font-family: system-ui, sans-serif; }
@@ -243,8 +241,7 @@
         <button id="stop" class="btn">&#9632; Stop</button>
       </div><!-- /#enc-live -->
 
-
-</div><!-- /#panel-encode -->
+    </div><!-- /#panel-encode -->
 
   </div><!-- /.container -->
 

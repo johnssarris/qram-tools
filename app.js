@@ -44,6 +44,7 @@
 
       const FILE_MAGIC    = CONFIG.FILE_MAGIC;
       const MAX_FILE_SIZE = CONFIG.MAX_FILE_SIZE;
+      const enc = new TextEncoder();
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {
@@ -71,7 +72,8 @@
         reader.onload = () => {
           loadedFile = {
             name: file.name,
-            data: new Uint8Array(reader.result)
+            nameBytes: enc.encode(file.name),
+            data: new Uint8Array(reader.result),
           };
           elDropZone.classList.add('has-file');
           elDropZone.innerHTML = '';
@@ -145,10 +147,9 @@
         let size = 0;
         if (currentMode === 'text') {
           const txt = elTxt.value || '';
-          if (txt) size = new TextEncoder().encode(txt).length;
+          if (txt) size = enc.encode(txt).length;
         } else if (loadedFile) {
-          const nameBytes = new TextEncoder().encode(loadedFile.name).length;
-          size = FILE_MAGIC.length + 2 + nameBytes + loadedFile.data.length;
+          size = FILE_MAGIC.length + 2 + loadedFile.nameBytes.length + loadedFile.data.length;
         }
 
         if (size > 0) {
@@ -158,9 +159,9 @@
           if (elCompress.checked && window.qramCompress) {
             if (currentMode === 'text') {
               clearTimeout(_compressPreviewTimer);
-              _compressPreviewTimer = setTimeout(() => updateCompressionPreview(size), 300);
+              _compressPreviewTimer = setTimeout(updateCompressionPreview, 300);
             } else {
-              updateCompressionPreview(size);
+              updateCompressionPreview();
             }
           }
         } else {
@@ -168,7 +169,7 @@
         }
       }
 
-      async function updateCompressionPreview(rawSize) {
+      async function updateCompressionPreview() {
         const payload = buildPayload();
         if (!payload || payload.length === 0) return;
         try {
@@ -223,10 +224,10 @@
         if (currentMode === 'text') {
           const txt = elTxt.value || '';
           if (!txt.trim()) return null;
-          return new TextEncoder().encode(txt);
+          return enc.encode(txt);
         } else {
           if (!loadedFile) return null;
-          const nameBytes = new TextEncoder().encode(loadedFile.name);
+          const { nameBytes } = loadedFile;
           const totalLen = FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
           const payload = new Uint8Array(totalLen);
           let offset = 0;
@@ -373,4 +374,3 @@
     // Prevent Safari pinch-to-zoom (iOS 10+ ignores user-scalable=no in the viewport meta)
     document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-
