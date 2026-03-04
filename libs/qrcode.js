@@ -75,9 +75,8 @@ var QRCode = function(t) {
         return e
       }
     }));
-  var w = o,
-    m = function(t) {
-      var r = w(t);
+  var m = function(t) {
+      var r = o(t);
       return [
         [0, 0],
         [r - 7, 0],
@@ -122,11 +121,7 @@ var QRCode = function(t) {
             throw new Error("bad maskPattern:" + t)
         }
       }
-      r.isValid = function(t) {
-        return null != t && "" !== t && !isNaN(t) && t >= 0 && t <= 7
-      }, r.from = function(t) {
-        return r.isValid(t) ? parseInt(t, 10) : void 0
-      }, r.getPenaltyN1 = function(t) {
+      r.getPenaltyN1 = function(t) {
         for (var r = t.size, n = 0, o = 0, a = 0, i = null, u = null, s = 0; s < r; s++) {
           o = a = 0, i = u = null;
           for (var f = 0; f < r; f++) {
@@ -221,7 +216,6 @@ var QRCode = function(t) {
     },
     K = h((function(t, r) {
       r.BYTE = {
-        id: "Byte",
         bit: 4,
         ccBits: [8, 16, 16]
       }, r.getCharCountIndicator = function(t, r) {
@@ -236,22 +230,20 @@ var QRCode = function(t) {
     function n(t, r) {
       return K.getCharCountIndicator(t, r) + 4
     }
-    r.from = function(t, r) {
-      return b(t) ? parseInt(t, 10) : r
-    }, r.getCapacity = function(t, r) {
+    r.getCapacity = function(t) {
       if (!b(t)) throw new Error("Invalid QR Code version");
       var o = 8 * (a(t) - M(t));
       return Math.floor((o - n(K.BYTE, t)) / 8)
-    }, r.getBestVersionForData = function(t, e) {
-      var n, a = c.L;
+    }, r.getBestVersionForData = function(t) {
+      var n;
       if (Array.isArray(t)) {
         if (0 === t.length) return 1;
         n = t[0]
       } else n = t;
-      return function(t, e, n) {
+      return function(t, e) {
         for (var o = 1; o <= 40; o++)
-          if (e <= r.getCapacity(o, n)) return o
-      }(n.mode, n.getLength(), a)
+          if (e <= r.getCapacity(o)) return o
+      }(n.mode, n.getLength())
     }, r.getEncodedBits = function(t) {
       if (!b(t) || t < 7) throw new Error("Invalid QR Code version");
       for (var r = t << 12; i(r) - e >= 0;) r ^= 7973 << i(r) - e;
@@ -318,7 +310,7 @@ var QRCode = function(t) {
 
   function it(t, r, e, n) {
     var a = nt.fromArray(t);
-    var s = O.getBestVersionForData(a, e);
+    var s = O.getBestVersionForData(a);
     if (!s) throw new Error("The amount of data is too big to be stored in a QR Code");
     if (r) {
       if (r < s) throw new Error("\nThe chosen QR Code version cannot contain this amount of data.\nMinimum version required to store current data is: " + s + ".\n")
@@ -367,29 +359,11 @@ var QRCode = function(t) {
   }
   var ut = function(t, r) {
       if (void 0 === t || "" === t) throw new Error("No input text");
-      var e, n;
-      if (void 0 !== r) { e = O.from(r.version), n = E.from(r.maskPattern); }
-      return it(t, e, c.L, n)
+      return it(t, void 0, c.L, void 0)
     },
     st = h((function(t, r) {
-      function e(t) {
-        if ("number" == typeof t && (t = t.toString()), "string" != typeof t) throw new Error("Color should be defined as hex string");
-        var r = t.slice().replace("#", "").split("");
-        if (r.length < 3 || 5 === r.length || r.length > 8) throw new Error("Invalid hex color: " + t);
-        3 !== r.length && 4 !== r.length || (r = Array.prototype.concat.apply([], r.map((function(t) {
-          return [t, t]
-        })))), 6 === r.length && r.push("F", "F");
-        var e = parseInt(r.join(""), 16);
-        return {
-          r: e >> 24 & 255,
-          g: e >> 16 & 255,
-          b: e >> 8 & 255,
-          a: 255 & e,
-          hex: "#" + r.slice(0, 6).join("")
-        }
-      }
       r.getOptions = function(t) {
-        t || (t = {}), t.color || (t.color = {});
+        t || (t = {});
         var r = void 0 === t.margin || null === t.margin || t.margin < 0 ? 4 : t.margin,
           n = t.width && t.width >= 21 ? t.width : void 0,
           o = t.scale || 4;
@@ -398,11 +372,9 @@ var QRCode = function(t) {
           scale: n ? 4 : o,
           margin: r,
           color: {
-            dark: e(t.color.dark || "#000000ff"),
-            light: e(t.color.light || "#ffffffff")
-          },
-          type: t.type,
-          rendererOpts: t.rendererOpts || {}
+            dark: { r: 0, g: 0, b: 0, a: 255 },
+            light: { r: 255, g: 255, b: 255, a: 255 }
+          }
         }
       }, r.getScale = function(t, r) {
         return r.width && r.width >= t + 2 * r.margin ? r.width / (t + 2 * r.margin) : r.scale
@@ -421,22 +393,14 @@ var QRCode = function(t) {
     }));
   var ft = h((function(t, r) {
     r.render = function(t, r, e) {
-      var n = e,
-        o = r;
-      void 0 !== n || r && r.getContext || (n = r, r = void 0), r || (o = function() {
-        try {
-          return document.createElement("canvas")
-        } catch (t) {
-          throw new Error("You need to specify a canvas element")
-        }
-      }()), n = st.getOptions(n);
-      var a = st.getImageWidth(t.modules.size, n),
-        i = o.getContext("2d"),
+      var n = st.getOptions(e),
+        a = st.getImageWidth(t.modules.size, n),
+        i = r.getContext("2d"),
         u = i.createImageData(a, a);
       return st.qrToImageData(u.data, t, n),
         function(t, r, e) {
           t.clearRect(0, 0, r.width, r.height), r.style || (r.style = {}), r.height = e, r.width = e, r.style.height = e + "px", r.style.width = e + "px"
-        }(i, o, a), i.putImageData(u, 0, 0), o
+        }(i, r, a), i.putImageData(u, 0, 0), r
     }
   }));
 
