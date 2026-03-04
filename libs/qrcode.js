@@ -7,29 +7,12 @@ var QRCode = function(t) {
 
   // Total codewords per version (index = version)
   var cw = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532, 581, 655, 733, 815, 901, 991, 1085, 1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051, 2185, 2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532, 3706],
-    o = function(t) {
-      if (!t) throw new Error('"version" cannot be null or undefined');
-      if (t < 1 || t > 40) throw new Error('"version" should be in range from 1 to 40');
-      return 4 * t + 17
-    },
     i = function(t) {
       for (var r = 0; 0 !== t;) r++, t >>>= 1;
       return r
     };
 
-  var c = { L: { bit: 1 } };
-
-  // ── BitBuffer ──────────────────────────────────────────────────────────────
-  function g() { this.buffer = [], this.length = 0 }
-  g.prototype = {
-    get: function(t) { return 1 == (this.buffer[Math.floor(t / 8)] >>> 7 - t % 8 & 1) },
-    put: function(t, r) { for (var e = 0; e < r; e++) this.putBit(1 == (t >>> r - e - 1 & 1)) },
-    getLengthInBits: function() { return this.length },
-    putBit: function(t) {
-      var r = Math.floor(this.length / 8);
-      this.buffer.length <= r && this.buffer.push(0), t && (this.buffer[r] |= 128 >>> this.length % 8), this.length++
-    }
-  };
+  var ECL = { bit: 1 };
 
   // ── BitMatrix ──────────────────────────────────────────────────────────────
   function l(t) {
@@ -44,97 +27,86 @@ var QRCode = function(t) {
   l.prototype.xor = function(t, r, e) { this.data[t * this.size + r] ^= e };
   l.prototype.isReserved = function(t, r) { return this.reservedBit[t * this.size + r] };
 
-  // ── Alignment patterns ─────────────────────────────────────────────────────
-  var p = {
-    getRowColCoords: function(t) {
-      if (1 === t) return [];
-      var r = Math.floor(t / 7) + 2, sz = o(t);
-      var step = 145 === sz ? 26 : 2 * Math.ceil((sz - 13) / (2 * r - 2));
-      for (var a = [sz - 7], i = 1; i < r - 1; i++) a[i] = a[i - 1] - step;
-      return a.push(6), a.reverse()
-    },
-    getPositions: function(t) {
-      for (var e = [], n = p.getRowColCoords(t), o = n.length, a = 0; a < o; a++)
-        for (var i = 0; i < o; i++)
-          0 === a && 0 === i || 0 === a && i === o - 1 || a === o - 1 && 0 === i || e.push([n[a], n[i]]);
-      return e
-    }
-  };
-
-  // ── Finder pattern positions ───────────────────────────────────────────────
-  var m = function(t) {
-    var r = o(t);
-    return [[0, 0], [r - 7, 0], [0, r - 7]]
-  };
+  // ── Alignment pattern positions ────────────────────────────────────────────
+  function alignmentPositions(version) {
+    if (version === 1) return [];
+    var cnt = Math.floor(version / 7) + 2, sz = 4 * version + 17;
+    var step = sz === 145 ? 26 : 2 * Math.ceil((sz - 13) / (2 * cnt - 2));
+    var coords = [sz - 7];
+    for (var k = 1; k < cnt - 1; k++) coords[k] = coords[k - 1] - step;
+    coords.push(6);
+    coords.reverse();
+    var len = coords.length, out = [];
+    for (var a = 0; a < len; a++)
+      for (var b = 0; b < len; b++)
+        if (!(a === 0 && b === 0) && !(a === 0 && b === len - 1) && !(a === len - 1 && b === 0))
+          out.push([coords[a], coords[b]]);
+    return out;
+  }
 
   // ── Mask patterns + penalty scoring ───────────────────────────────────────
-  var E = (function() {
-    var p1 = 3, p2 = 3, p3 = 40, p4 = 10;
-
-    function maskBit(t, row, col) {
-      switch (t) {
-        case 0: return (row + col) % 2 == 0;
-        case 1: return row % 2 == 0;
-        case 2: return col % 3 == 0;
-        case 3: return (row + col) % 3 == 0;
-        case 4: return (Math.floor(row / 2) + Math.floor(col / 3)) % 2 == 0;
-        case 5: return row * col % 2 + row * col % 3 == 0;
-        case 6: return (row * col % 2 + row * col % 3) % 2 == 0;
-        case 7: return (row * col % 3 + (row + col) % 2) % 2 == 0;
-        default: throw new Error("bad maskPattern:" + t)
-      }
+  function maskBit(t, row, col) {
+    switch (t) {
+      case 0: return (row + col) % 2 == 0;
+      case 1: return row % 2 == 0;
+      case 2: return col % 3 == 0;
+      case 3: return (row + col) % 3 == 0;
+      case 4: return (Math.floor(row / 2) + Math.floor(col / 3)) % 2 == 0;
+      case 5: return row * col % 2 + row * col % 3 == 0;
+      case 6: return (row * col % 2 + row * col % 3) % 2 == 0;
+      case 7: return (row * col % 3 + (row + col) % 2) % 2 == 0;
+      default: throw new Error("bad maskPattern:" + t)
     }
+  }
 
-    var r = {
-      getPenaltyN1: function(t) {
-        for (var r = t.size, n = 0, o = 0, a = 0, i = null, u = null, s = 0; s < r; s++) {
-          o = a = 0, i = u = null;
-          for (var f = 0; f < r; f++) {
-            var h = t.get(s, f);
-            h === i ? o++ : (o >= 5 && (n += p1 + (o - 5)), i = h, o = 1);
-            (h = t.get(f, s)) === u ? a++ : (a >= 5 && (n += p1 + (a - 5)), u = h, a = 1)
-          }
-          o >= 5 && (n += p1 + (o - 5)), a >= 5 && (n += p1 + (a - 5))
+  var E = {
+    getPenaltyN1: function(t) {
+      for (var r = t.size, n = 0, o = 0, a = 0, i = null, u = null, s = 0; s < r; s++) {
+        o = a = 0, i = u = null;
+        for (var f = 0; f < r; f++) {
+          var h = t.get(s, f);
+          h === i ? o++ : (o >= 5 && (n += 3 + (o - 5)), i = h, o = 1);
+          (h = t.get(f, s)) === u ? a++ : (a >= 5 && (n += 3 + (a - 5)), u = h, a = 1)
         }
-        return n
-      },
-      getPenaltyN2: function(t) {
-        for (var r = t.size, e = 0, o = 0; o < r - 1; o++)
-          for (var a = 0; a < r - 1; a++) {
-            var i = t.get(o, a) + t.get(o, a + 1) + t.get(o + 1, a) + t.get(o + 1, a + 1);
-            4 !== i && 0 !== i || e++
-          }
-        return e * p2
-      },
-      getPenaltyN3: function(t) {
-        for (var r = t.size, e = 0, n = 0, a = 0, i = 0; i < r; i++) {
-          n = a = 0;
-          for (var u = 0; u < r; u++) {
-            n = n << 1 & 2047 | t.get(i, u), u >= 10 && (1488 === n || 93 === n) && e++;
-            a = a << 1 & 2047 | t.get(u, i), u >= 10 && (1488 === a || 93 === a) && e++
-          }
-        }
-        return e * p3
-      },
-      getPenaltyN4: function(t) {
-        for (var r = 0, e = t.data.length, n = 0; n < e; n++) r += t.data[n];
-        return Math.abs(Math.ceil(100 * r / e / 5) - 10) * p4
-      },
-      applyMask: function(t, r) {
-        for (var e = r.size, n = 0; n < e; n++)
-          for (var o = 0; o < e; o++) r.isReserved(o, n) || r.xor(o, n, maskBit(t, o, n))
-      },
-      getBestMask: function(t, e) {
-        for (var o = 0, a = Infinity, i = 0; i < 8; i++) {
-          e(i), r.applyMask(i, t);
-          var u = r.getPenaltyN1(t) + r.getPenaltyN2(t) + r.getPenaltyN3(t) + r.getPenaltyN4(t);
-          r.applyMask(i, t), u < a && (a = u, o = i)
-        }
-        return o
+        o >= 5 && (n += 3 + (o - 5)), a >= 5 && (n += 3 + (a - 5))
       }
-    };
-    return r;
-  })();
+      return n
+    },
+    getPenaltyN2: function(t) {
+      for (var r = t.size, e = 0, o = 0; o < r - 1; o++)
+        for (var a = 0; a < r - 1; a++) {
+          var i = t.get(o, a) + t.get(o, a + 1) + t.get(o + 1, a) + t.get(o + 1, a + 1);
+          4 !== i && 0 !== i || e++
+        }
+      return e * 3
+    },
+    getPenaltyN3: function(t) {
+      for (var r = t.size, e = 0, n = 0, a = 0, i = 0; i < r; i++) {
+        n = a = 0;
+        for (var u = 0; u < r; u++) {
+          n = n << 1 & 2047 | t.get(i, u), u >= 10 && (1488 === n || 93 === n) && e++;
+          a = a << 1 & 2047 | t.get(u, i), u >= 10 && (1488 === a || 93 === a) && e++
+        }
+      }
+      return e * 40
+    },
+    getPenaltyN4: function(t) {
+      for (var r = 0, e = t.data.length, n = 0; n < e; n++) r += t.data[n];
+      return Math.abs(Math.ceil(100 * r / e / 5) - 10) * 10
+    },
+    applyMask: function(t, r) {
+      for (var e = r.size, n = 0; n < e; n++)
+        for (var o = 0; o < e; o++) r.isReserved(o, n) || r.xor(o, n, maskBit(t, o, n))
+    },
+    getBestMask: function(t, e) {
+      for (var o = 0, a = Infinity, i = 0; i < 8; i++) {
+        e(i), E.applyMask(i, t);
+        var u = E.getPenaltyN1(t) + E.getPenaltyN2(t) + E.getPenaltyN3(t) + E.getPenaltyN4(t);
+        E.applyMask(i, t), u < a && (a = u, o = i)
+      }
+      return o
+    }
+  };
 
   // ── EC block/codeword counts (L only) ─────────────────────────────────────
   var y = [1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
@@ -183,17 +155,12 @@ var QRCode = function(t) {
     return e
   };
 
-  var K = { BYTE: { bit: 4 } };
-
-  // ── Version selection and format ───────────────────────────────────────────
+  // ── Version and format ─────────────────────────────────────────────────────
   var O = {};
   O.getCapacity = function(t) {
-    var o = 8 * (cw[t] - M(t));
-    return Math.floor((o - (t < 10 ? 12 : 20)) / 8)
+    return Math.floor((8 * (cw[t] - M(t)) - (t < 10 ? 12 : 20)) / 8)
   };
-  O.getBestVersionForData = function(t) {
-    if (!t.length) return 1;
-    var len = t[0].getLength();
+  O.getBestVersionForData = function(len) {
     for (var o = 1; o <= 40; o++) if (len <= O.getCapacity(o)) return o
   };
   var _versionBits = 13; // precomputed i(7973)
@@ -210,13 +177,6 @@ var QRCode = function(t) {
       return 21522 ^ (e << 10 | n)
     };
 
-  // ── Byte-mode segment ──────────────────────────────────────────────────────
-  function W(t) { this.mode = K.BYTE, this.data = new Uint8Array(t) }
-  W.prototype.getLength = function() { return this.data.length };
-  W.prototype.write = function(t) {
-    for (var r = 0, e = this.data.length; r < e; r++) t.put(this.data[r], 8)
-  };
-
   // ── Format info writer ─────────────────────────────────────────────────────
   function ot(t, r, e) {
     var n, o, a = t.size, i = V(r, e);
@@ -228,123 +188,138 @@ var QRCode = function(t) {
     t.set(a - 8, 8, 1, !0)
   }
 
-  // ── Data encoder + interleaver ────────────────────────────────────────────
-  function at(t, e) {
-    var n = new g;
-    e.forEach(function(r) {
-      n.put(r.mode.bit, 4);
-      n.put(r.getLength(), t < 10 ? 8 : 16);
-      r.write(n)
-    });
-    var o = 8 * (cw[t] - M(t));
-    for (n.getLengthInBits() + 4 <= o && n.put(0, 4); n.getLengthInBits() % 8 != 0;) n.putBit(0);
-    for (var s = (o - n.getLengthInBits()) / 8, u = 0; u < s; u++) n.put(u % 2 ? 17 : 236, 8);
-    return function(t, r) {
-      for (var n = cw[r], o = M(r), i = n - o, u = I(r), s = u - n % u, f = Math.floor(n / u), h = Math.floor(i / u), c = h + 1, g = f - h, d = new T(g), l = 0, v = new Array(u), p = new Array(u), w = 0, m = new Uint8Array(t.buffer), E = 0; E < u; E++) {
-        var y = E < s ? h : c;
-        v[E] = m.slice(l, l + y), p[E] = d.encode(v[E]), l += y, w = Math.max(w, y)
-      }
-      var A, N, B = new Uint8Array(n), C = 0;
-      for (A = 0; A < w; A++)
-        for (N = 0; N < u; N++) A < v[N].length && (B[C++] = v[N][A]);
-      for (A = 0; A < g; A++)
-        for (N = 0; N < u; N++) B[C++] = p[N][A];
-      return B
-    }(n, t)
+  // ── Data encoder: byte-mode bit packing + RS interleaving ─────────────────
+  function at(version, data) {
+    var totalBytes = cw[version] - M(version);
+    var ccBits = version < 10 ? 8 : 16;
+    var buf = new Uint8Array(totalBytes);
+    var bits = 0, blen = 0, idx = 0;
+    function push(val, n) {
+      bits = bits << n | val; blen += n;
+      while (blen >= 8) { blen -= 8; buf[idx++] = bits >> blen & 0xFF; }
+    }
+    push(4, 4);                // byte mode indicator
+    push(data.length, ccBits); // character count
+    for (var k = 0; k < data.length; k++) push(data[k], 8);
+    push(0, Math.min(4, totalBytes * 8 - 4 - ccBits - 8 * data.length)); // terminator
+    if (blen) buf[idx++] = bits << (8 - blen) & 0xFF;
+    for (var pad = 0; idx < totalBytes; idx++, pad++) buf[idx] = pad & 1 ? 0x11 : 0xEC;
+
+    var total = cw[version], numBlocks = I(version);
+    var shortBlocks = numBlocks - total % numBlocks;
+    var shortData = Math.floor(totalBytes / numBlocks);
+    var ecPerBlock = Math.floor(total / numBlocks) - shortData;
+    var rs = new T(ecPerBlock), off = 0, maxLen = 0;
+    var dataBlocks = new Array(numBlocks), ecBlocks = new Array(numBlocks);
+    for (var b = 0; b < numBlocks; b++) {
+      var len = b < shortBlocks ? shortData : shortData + 1;
+      dataBlocks[b] = buf.slice(off, off + len);
+      ecBlocks[b] = rs.encode(dataBlocks[b]);
+      off += len; maxLen = Math.max(maxLen, len);
+    }
+    var out = new Uint8Array(total), pos = 0;
+    for (var ii = 0; ii < maxLen; ii++)
+      for (var jj = 0; jj < numBlocks; jj++)
+        if (ii < dataBlocks[jj].length) out[pos++] = dataBlocks[jj][ii];
+    for (var ii = 0; ii < ecPerBlock; ii++)
+      for (var jj = 0; jj < numBlocks; jj++)
+        out[pos++] = ecBlocks[jj][ii];
+    return out;
   }
 
   // ── QR code builder ───────────────────────────────────────────────────────
   function it(t, r, n) {
-    var a = t.reduce(function(t, r) { return r.data && t.push(new W(r.data)), t }, []);
-    var s = O.getBestVersionForData(a);
-    if (!s) throw new Error("The amount of data is too big to be stored in a QR Code");
-    if (r) {
-      if (r < s) throw new Error("\nThe chosen QR Code version cannot contain this amount of data.\nMinimum version required to store current data is: " + s + ".\n")
-    } else r = s;
-    var f = at(r, a), h = o(r), mat = new l(h);
+    var data = t[0] && t[0].data ? t[0].data : new Uint8Array(0);
+    var version = r || O.getBestVersionForData(data.length);
+    if (!version) throw new Error("The amount of data is too big to be stored in a QR Code");
+    var sz = 4 * version + 17, mat = new l(sz);
+    var encoded = at(version, data);
+
     // Finder patterns
-    !function(t, r) {
-      for (var e = t.size, n = m(r), o = 0; o < n.length; o++)
-        for (var a = n[o][0], i = n[o][1], u = -1; u <= 7; u++)
-          if (!(a + u <= -1 || e <= a + u))
-            for (var s = -1; s <= 7; s++)
-              i + s <= -1 || e <= i + s || (u >= 0 && u <= 6 && (0 === s || 6 === s) || s >= 0 && s <= 6 && (0 === u || 6 === u) || u >= 2 && u <= 4 && s >= 2 && s <= 4 ? t.set(a + u, i + s, !0, !0) : t.set(a + u, i + s, !1, !0))
-    }(mat, r);
-    // Timing patterns
-    !function(t) {
-      for (var r = t.size, e = 8; e < r - 8; e++) { var n = e % 2 == 0; t.set(e, 6, n, !0), t.set(6, e, n, !0) }
-    }(mat);
-    // Alignment patterns
-    !function(t, r) {
-      for (var e = p.getPositions(r), n = 0; n < e.length; n++)
-        for (var o = e[n][0], a = e[n][1], i = -2; i <= 2; i++)
-          for (var u = -2; u <= 2; u++)
-            -2 === i || 2 === i || -2 === u || 2 === u || 0 === i && 0 === u ? t.set(o + i, a + u, !0, !0) : t.set(o + i, a + u, !1, !0)
-    }(mat, r);
-    ot(mat, c.L, 0);
-    // Version info (version >= 7 only)
-    r >= 7 && function(t, r) {
-      for (var e, n, o, a = t.size, i = O.getEncodedBits(r), u = 0; u < 18; u++) {
-        e = Math.floor(u / 3), n = u % 3 + a - 8 - 3, o = 1 == (i >> u & 1);
-        t.set(e, n, o, !0), t.set(n, e, o, !0)
-      }
-    }(mat, r);
-    // Data placement
-    !function(t, r) {
-      for (var e = t.size, n = -1, o = e - 1, a = 7, i = 0, u = e - 1; u > 0; u -= 2) {
-        for (6 === u && u--;;) {
-          for (var s = 0; s < 2; s++)
-            if (!t.isReserved(o, u - s)) {
-              var f = !1;
-              i < r.length && (f = 1 == (r[i] >>> a & 1)), t.set(o, u - s, f), -1 === --a && (i++, a = 7)
-            }
-          if ((o += n) < 0 || e <= o) { o -= n, n = -n; break }
+    var fpos = [[0, 0], [sz - 7, 0], [0, sz - 7]];
+    for (var fp = 0; fp < 3; fp++) {
+      var fr = fpos[fp][0], fc = fpos[fp][1];
+      for (var fu = -1; fu <= 7; fu++) {
+        if (fr + fu < 0 || fr + fu >= sz) continue;
+        for (var fs = -1; fs <= 7; fs++) {
+          if (fc + fs < 0 || fc + fs >= sz) continue;
+          mat.set(fr + fu, fc + fs,
+            fu >= 0 && fu <= 6 && (fs === 0 || fs === 6) ||
+            fs >= 0 && fs <= 6 && (fu === 0 || fu === 6) ||
+            fu >= 2 && fu <= 4 && fs >= 2 && fs <= 4, !0);
         }
       }
-    }(mat, f);
-    isNaN(n) && (n = E.getBestMask(mat, ot.bind(null, mat, c.L)));
-    E.applyMask(n, mat);
-    ot(mat, c.L, n);
-    return { modules: mat, version: r, errorCorrectionLevel: c.L, maskPattern: n, segments: a }
+    }
+
+    // Timing patterns
+    for (var te = 8; te < sz - 8; te++) {
+      mat.set(te, 6, te % 2 == 0, !0); mat.set(6, te, te % 2 == 0, !0);
+    }
+
+    // Alignment patterns
+    var apos = alignmentPositions(version);
+    for (var ap = 0; ap < apos.length; ap++) {
+      var ar = apos[ap][0], ac = apos[ap][1];
+      for (var ai = -2; ai <= 2; ai++)
+        for (var aj = -2; aj <= 2; aj++)
+          mat.set(ar + ai, ac + aj,
+            ai === -2 || ai === 2 || aj === -2 || aj === 2 || (ai === 0 && aj === 0), !0);
+    }
+
+    ot(mat, ECL, 0);
+
+    // Version info (version >= 7 only)
+    if (version >= 7) {
+      var vbits = O.getEncodedBits(version);
+      for (var vi = 0; vi < 18; vi++) {
+        var vr = Math.floor(vi / 3), vc = vi % 3 + sz - 11, vb = !!(vbits >> vi & 1);
+        mat.set(vr, vc, vb, !0); mat.set(vc, vr, vb, !0);
+      }
+    }
+
+    // Data placement
+    var dir = -1, row = sz - 1, bit = 7, didx = 0;
+    for (var col = sz - 1; col > 0; col -= 2) {
+      if (col === 6) col--;
+      for (;;) {
+        for (var ds = 0; ds < 2; ds++) {
+          if (!mat.isReserved(row, col - ds)) {
+            var dv = didx < encoded.length ? encoded[didx] >>> bit & 1 : 0;
+            mat.set(row, col - ds, dv);
+            if (--bit < 0) { didx++; bit = 7; }
+          }
+        }
+        if ((row += dir) < 0 || row >= sz) { row -= dir; dir = -dir; break; }
+      }
+    }
+
+    var maskPat = isNaN(n) ? E.getBestMask(mat, ot.bind(null, mat, ECL)) : n;
+    E.applyMask(maskPat, mat);
+    ot(mat, ECL, maskPat);
+    return mat;
   }
 
-  // ── Renderer ──────────────────────────────────────────────────────────────
-  var st = {
-    getOptions: function(t) {
-      t || (t = {});
-      var r = void 0 === t.margin || null === t.margin || t.margin < 0 ? 4 : t.margin,
-        n = t.width && t.width >= 21 ? t.width : void 0,
-        o = t.scale || 4;
-      return {
-        width: n, scale: n ? 4 : o, margin: r,
-        color: { dark: { r: 0, g: 0, b: 0, a: 255 }, light: { r: 255, g: 255, b: 255, a: 255 } }
-      }
-    },
-    getScale: function(t, r) {
-      return r.width && r.width >= t + 2 * r.margin ? r.width / (t + 2 * r.margin) : r.scale
-    },
-    getImageWidth: function(t, r) {
-      return Math.floor((t + 2 * r.margin) * st.getScale(t, r))
-    },
-    qrToImageData: function(t, e, n) {
-      for (var o = e.modules.size, a = e.modules.data, i = st.getScale(o, n), u = Math.floor((o + 2 * n.margin) * i), s = n.margin * i, f = [n.color.light, n.color.dark], h = 0; h < u; h++)
-        for (var c = 0; c < u; c++) {
-          var g = 4 * (h * u + c), d = n.color.light;
-          if (h >= s && c >= s && h < u - s && c < u - s) d = f[a[Math.floor((h - s) / i) * o + Math.floor((c - s) / i)] ? 1 : 0];
-          t[g++] = d.r, t[g++] = d.g, t[g++] = d.b, t[g] = d.a
-        }
-    }
-  };
-
+  // ── Canvas renderer ───────────────────────────────────────────────────────
   t.toCanvas = function(r, n, o) {
     return new Promise(function(e, a) {
       try {
-        var qr = it(n, void 0, void 0);
-        var opts = st.getOptions(o);
-        var size = st.getImageWidth(qr.modules.size, opts);
+        var mat = it(n, void 0, void 0);
+        o || (o = {});
+        var margin = void 0 === o.margin || null === o.margin || o.margin < 0 ? 4 : o.margin;
+        var w = o.width && o.width >= 21 ? o.width : void 0;
+        var scale = w ? w / (mat.size + 2 * margin) : (o.scale || 4);
+        var size = Math.floor((mat.size + 2 * margin) * scale);
         var ctx = r.getContext("2d");
-        var img = ctx.createImageData(size, size);
-        st.qrToImageData(img.data, qr, opts);
+        var img = ctx.createImageData(size, size), px = img.data;
+        var s = margin * scale;
+        for (var h = 0; h < size; h++)
+          for (var c = 0; c < size; c++) {
+            var g = 4 * (h * size + c);
+            var dark = h >= s && c >= s && h < size - s && c < size - s &&
+              mat.data[Math.floor((h - s) / scale) * mat.size + Math.floor((c - s) / scale)];
+            var v = dark ? 0 : 255;
+            px[g++] = v, px[g++] = v, px[g++] = v, px[g] = 255;
+          }
         ctx.clearRect(0, 0, r.width, r.height);
         r.height = size, r.width = size;
         r.style.height = size + "px", r.style.width = size + "px";
