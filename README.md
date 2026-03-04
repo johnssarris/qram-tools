@@ -8,27 +8,25 @@ Uses fountain codes (LT codes) so missed or duplicated frames don't
 matter — the receiver only needs enough unique packets to reconstruct
 the original data.
 
-------------------------------------------------------------------------
+---
 
-# Quick Start
+## Quick Start
 
-1. Open `index.html` in a modern browser (or serve via a static file
-   server / GitHub Pages)
-2. Paste text or drop a file
+1. Open `index.html` in a modern browser, or serve via a static file server
+2. Paste text or drop a file (up to 1 MB)
 3. Adjust FPS and block size if needed
-4. Click **Start Encoding**
+4. Click **Start Encoding** and scan the QR codes with your phone
 
-### Recommended Settings
+## Tips
 
-- Block size: 200–400 bytes (or use Auto)
-- FPS: 4–8
-- Distance: ~15–30 cm, good lighting
+- **FPS**: 4–8 is reliable for most cameras; go higher if your scanner keeps up
+- **Block size**: auto-selected based on payload size; override if needed
+- **Distance**: ~15–30 cm, good lighting, phone held steady
+- Compression is applied automatically when it helps (gzip via `CompressionStream`)
 
-------------------------------------------------------------------------
+## Deployment
 
-# Deployment
-
-Static hosting (GitHub Pages supported). No build step required.
+Static hosting, no build step.
 
 ```
 git push origin main
