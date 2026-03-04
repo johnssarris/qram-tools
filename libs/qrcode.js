@@ -42,20 +42,11 @@ var QRCode = function(t) {
         return function(t) {
           if ("string" != typeof t) throw new Error("Param is not a string");
           switch (t.toLowerCase()) {
-            case "l":
-            case "low":
-              return r.L;
-            case "m":
-            case "medium":
-              return r.M;
-            case "q":
-            case "quartile":
-              return r.Q;
-            case "h":
-            case "high":
-              return r.H;
-            default:
-              throw new Error("Unknown EC Level: " + t)
+            case "l": return r.L;
+            case "m": return r.M;
+            case "q": return r.Q;
+            case "h": return r.H;
+            default: throw new Error("Unknown EC Level: " + t)
           }
         }(t)
       } catch (t) {
@@ -67,7 +58,7 @@ var QRCode = function(t) {
   function g() {
     this.buffer = [], this.length = 0
   }
-  c.L, c.M, c.Q, c.H, c.isValid, g.prototype = {
+  g.prototype = {
     get: function(t) {
       var r = Math.floor(t / 8);
       return 1 == (this.buffer[r] >>> 7 - t % 8 & 1)
@@ -112,7 +103,6 @@ var QRCode = function(t) {
         return e
       }
     }));
-  p.getRowColCoords, p.getPositions;
   var w = o,
     m = function(t) {
       var r = w(t);
@@ -202,7 +192,6 @@ var QRCode = function(t) {
         return o
       }
     }));
-  E.Patterns, E.isValid, E.getPenaltyN1, E.getPenaltyN2, E.getPenaltyN3, E.getPenaltyN4, E.applyMask, E.getBestMask;
   var y = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 1, 2, 2, 4, 1, 2, 4, 4, 2, 4, 4, 4, 2, 4, 6, 5, 2, 4, 6, 6, 2, 5, 8, 8, 4, 5, 8, 8, 4, 5, 8, 11, 4, 8, 10, 11, 4, 9, 12, 16, 4, 9, 16, 16, 6, 10, 12, 18, 6, 10, 17, 16, 6, 11, 16, 19, 6, 13, 18, 21, 7, 14, 21, 25, 8, 16, 20, 25, 8, 17, 23, 25, 9, 17, 23, 34, 9, 18, 25, 30, 10, 20, 27, 32, 12, 21, 29, 35, 12, 23, 34, 37, 12, 25, 34, 40, 13, 26, 35, 42, 14, 28, 38, 45, 15, 29, 40, 48, 16, 31, 43, 51, 17, 33, 45, 54, 18, 35, 48, 57, 19, 37, 51, 60, 19, 38, 53, 63, 20, 40, 56, 66, 21, 43, 59, 70, 22, 45, 62, 74, 24, 47, 65, 77, 25, 49, 68, 81],
     A = [7, 10, 13, 17, 10, 16, 22, 28, 15, 26, 36, 44, 20, 36, 52, 64, 26, 48, 72, 88, 36, 64, 96, 112, 40, 72, 108, 130, 48, 88, 132, 156, 60, 110, 160, 192, 72, 130, 192, 224, 80, 150, 224, 264, 96, 176, 260, 308, 104, 198, 288, 352, 120, 216, 320, 384, 132, 240, 360, 432, 144, 280, 408, 480, 168, 308, 448, 532, 180, 338, 504, 588, 196, 364, 546, 650, 224, 416, 600, 700, 224, 442, 644, 750, 252, 476, 690, 816, 270, 504, 750, 900, 300, 560, 810, 960, 312, 588, 870, 1050, 336, 644, 952, 1110, 360, 700, 1020, 1200, 390, 728, 1050, 1260, 420, 784, 1140, 1350, 450, 812, 1200, 1440, 480, 868, 1290, 1530, 510, 924, 1350, 1620, 540, 980, 1440, 1710, 570, 1036, 1530, 1800, 570, 1064, 1590, 1890, 600, 1120, 1680, 1980, 630, 1204, 1770, 2100, 660, 1260, 1860, 2220, 720, 1316, 1950, 2310, 750, 1372, 2040, 2430],
     I = function(t, r) {
@@ -266,7 +255,7 @@ var QRCode = function(t) {
   function T(t) {
     this.genPoly = void 0, this.degree = t, this.degree && this.initialize(this.degree)
   }
-  R.mul, R.mod, R.generateECPolynomial, T.prototype.initialize = function(t) {
+  T.prototype.initialize = function(t) {
     this.degree = t, this.genPoly = R.generateECPolynomial(this.degree)
   }, T.prototype.encode = function(t) {
     if (!this.genPoly) throw new Error("Encoder not initialized");
@@ -285,51 +274,14 @@ var QRCode = function(t) {
       return !isNaN(t) && t >= 1 && t <= 40
     },
     K = h((function(t, r) {
-      r.NUMERIC = {
-        id: "Numeric",
-        bit: 1,
-        ccBits: [10, 12, 14]
-      }, r.ALPHANUMERIC = {
-        id: "Alphanumeric",
-        bit: 2,
-        ccBits: [9, 11, 13]
-      }, r.BYTE = {
+      r.BYTE = {
         id: "Byte",
         bit: 4,
         ccBits: [8, 16, 16]
-      }, r.KANJI = {
-        id: "Kanji",
-        bit: 8,
-        ccBits: [8, 10, 12]
-      }, r.MIXED = {
-        bit: -1
       }, r.getCharCountIndicator = function(t, r) {
         if (!t.ccBits) throw new Error("Invalid mode: " + t);
         if (!b(r)) throw new Error("Invalid version: " + r);
         return r >= 1 && r < 10 ? t.ccBits[0] : r < 27 ? t.ccBits[1] : t.ccBits[2]
-      }, r.isValid = function(t) {
-        return t && t.bit && t.ccBits
-      }, r.from = function(t, e) {
-        if (r.isValid(t)) return t;
-        try {
-          return function(t) {
-            if ("string" != typeof t) throw new Error("Param is not a string");
-            switch (t.toLowerCase()) {
-              case "numeric":
-                return r.NUMERIC;
-              case "alphanumeric":
-                return r.ALPHANUMERIC;
-              case "kanji":
-                return r.KANJI;
-              case "byte":
-                return r.BYTE;
-              default:
-                throw new Error("Unknown mode: " + t)
-            }
-          }(t)
-        } catch (t) {
-          return e
-        }
       }
     }));
   var O = h((function(t, r) {
@@ -338,47 +290,21 @@ var QRCode = function(t) {
     function n(t, r) {
       return K.getCharCountIndicator(t, r) + 4
     }
-
-    function o(t, r) {
-      var e = 0;
-      return t.forEach((function(t) {
-        var o = n(t.mode, r);
-        e += o + t.getBitsLength()
-      })), e
-    }
     r.from = function(t, r) {
       return b(t) ? parseInt(t, 10) : r
-    }, r.getCapacity = function(t, r, e) {
+    }, r.getCapacity = function(t, r) {
       if (!b(t)) throw new Error("Invalid QR Code version");
-      void 0 === e && (e = K.BYTE);
       var o = 8 * (a(t) - M(t, r));
-      if (e === K.MIXED) return o;
-      var i = o - n(e, t);
-      switch (e) {
-        case K.NUMERIC:
-          return Math.floor(i / 10 * 3);
-        case K.ALPHANUMERIC:
-          return Math.floor(i / 11 * 2);
-        case K.KANJI:
-          return Math.floor(i / 13);
-        case K.BYTE:
-        default:
-          return Math.floor(i / 8)
-      }
+      return Math.floor((o - n(K.BYTE, t)) / 8)
     }, r.getBestVersionForData = function(t, e) {
       var n, a = c.from(e, c.M);
       if (Array.isArray(t)) {
-        if (t.length > 1) return function(t, e) {
-          for (var n = 1; n <= 40; n++) {
-            if (o(t, n) <= r.getCapacity(n, e, K.MIXED)) return n
-          }
-        }(t, a);
         if (0 === t.length) return 1;
         n = t[0]
       } else n = t;
       return function(t, e, n) {
         for (var o = 1; o <= 40; o++)
-          if (e <= r.getCapacity(o, n, t)) return o
+          if (e <= r.getCapacity(o, n)) return o
       }(n.mode, n.getLength(), a)
     }, r.getEncodedBits = function(t) {
       if (!b(t) || t < 7) throw new Error("Invalid QR Code version");
@@ -386,7 +312,6 @@ var QRCode = function(t) {
       return t << 12 | r
     }
   }));
-  O.getCapacity, O.getBestVersionForData, O.getEncodedBits;
   var Q = i(1335),
     V = function(t, r) {
       for (var e = t.bit << 3 | r, n = e << 10; i(n) - Q >= 0;) n ^= 1335 << i(n) - Q;
@@ -394,17 +319,7 @@ var QRCode = function(t) {
     };
 
   function W(t) {
-    this.mode = K.BYTE, "string" == typeof t && (t = function(t) {
-      for (var r = [], e = t.length, n = 0; n < e; n++) {
-        var o = t.charCodeAt(n);
-        if (o >= 55296 && o <= 56319 && e > n + 1) {
-          var a = t.charCodeAt(n + 1);
-          a >= 56320 && a <= 57343 && (o = 1024 * (o - 55296) + a - 56320 + 65536, n += 1)
-        }
-        o < 128 ? r.push(o) : o < 2048 ? (r.push(o >> 6 | 192), r.push(63 & o | 128)) : o < 55296 || o >= 57344 && o < 65536 ? (r.push(o >> 12 | 224), r.push(o >> 6 & 63 | 128), r.push(63 & o | 128)) : o >= 65536 && o <= 1114111 ? (r.push(o >> 18 | 240), r.push(o >> 12 & 63 | 128), r.push(o >> 6 & 63 | 128), r.push(63 & o | 128)) : r.push(239, 191, 189)
-      }
-      return new Uint8Array(r).buffer
-    }(t)), this.data = new Uint8Array(t)
+    this.mode = K.BYTE, this.data = new Uint8Array(t)
   }
   W.getBitsLength = function(t) {
     return 8 * t
@@ -557,7 +472,6 @@ var QRCode = function(t) {
           }
       }
     }));
-  st.getOptions, st.getScale, st.getImageWidth, st.qrToImageData;
   var ft = h((function(t, r) {
     r.render = function(t, r, e) {
       var n = e,
@@ -580,13 +494,9 @@ var QRCode = function(t) {
   }));
 
   function dt(t, r, n, o) {
-    var i = [].slice.call(arguments, 1),
-      u = i.length;
-    if (u < 1) throw new Error("Too few arguments provided");
-    return 1 === u ? (n = r, r = o = void 0) : 2 !== u || r.getContext || (o = n, n = r, r = void 0), new Promise(function(e, a) {
+    return new Promise(function(e, a) {
       try {
-        var i = ut(n, o);
-        e(t(i, r, o))
+        e(t(ut(n, o), r, o))
       } catch (t) {
         a(t)
       }
