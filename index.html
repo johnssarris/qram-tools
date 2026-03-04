@@ -175,10 +175,6 @@
     #drop-zone .drop-hint { color: #666; font-size: 11px; }
     #file-input { display: none; }
 
-    .auto-label { color: #c8c8c8; display: flex; gap: 4px; align-items: center; font-size: 13px; cursor: pointer; }
-    .auto-label input[type="checkbox"] { accent-color: var(--accent-blue); width: 16px; height: 16px; cursor: pointer; }
-    #blk:disabled { opacity: .6; cursor: not-allowed; }
-
     #data-size { font-size: 12px; color: #888; margin-top: 4px; }
   </style>
 </head>
@@ -223,8 +219,6 @@
         <div class="row enc-settings">
           <label>FPS:<input type="number" id="fps" value="20" min="1" max="60"></label>
           <label>Block:<input type="number" id="blk" value="200" min="50" max="5000"></label>
-          <label class="auto-label"><input type="checkbox" id="auto-blk"> Auto</label>
-          <label class="auto-label"><input type="checkbox" id="compress" checked> Compress</label>
         </div>
 
         <button id="start" class="btn">&#9654; Start Encoding</button>

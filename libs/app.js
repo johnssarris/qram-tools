@@ -4,7 +4,6 @@
       MAX_FILE_SIZE:  1 * 1024 * 1024,  // 1 MB
       MIN_BLOCK_SIZE: 50,
       MAX_BLOCK_SIZE: 20000,
-      DEFAULT_BLOCK:  200,
       MIN_FPS:        1,
       MAX_FPS:        60,
       DEFAULT_FPS:    20,
@@ -19,8 +18,6 @@
       const elTxt      = document.getElementById('txt');
       const elFPS      = document.getElementById('fps');
       const elBlk      = document.getElementById('blk');
-      const elAutoBlk  = document.getElementById('auto-blk');
-      const elCompress = document.getElementById('compress');
       const elStart    = document.getElementById('start');
       const elStop     = document.getElementById('stop');
       const elStats    = document.getElementById('stats');
@@ -136,14 +133,7 @@
         return 700;
       }
 
-      elAutoBlk.addEventListener('change', () => {
-        elBlk.disabled = elAutoBlk.checked;
-        if (elAutoBlk.checked) updateDataSize();
-      });
-
-      elBlk.disabled = elAutoBlk.checked;
       elTxt.addEventListener('input', updateDataSize);
-      elCompress.addEventListener('change', updateDataSize);
 
       let _compressPreviewTimer = null;
 
@@ -158,9 +148,8 @@
 
         if (size > 0) {
           elDataSize.textContent = `Data: ${formatBytes(size)}`;
-          if (elAutoBlk.checked) elBlk.value = autoBlockSize(size);
-          // Show compression preview (debounced for text input)
-          if (elCompress.checked && window.qramCompress) {
+          elBlk.value = autoBlockSize(size);
+          if (window.qramCompress) {
             if (currentMode === 'text') {
               clearTimeout(_compressPreviewTimer);
               _compressPreviewTimer = setTimeout(updateCompressionPreview, 300);
@@ -257,13 +246,13 @@
         }
 
         let sendData = data;
-        if (elCompress.checked && window.qramCompress) {
+        if (window.qramCompress) {
           const cr = await qramCompress.maybeCompress(data);
           sendData = cr.data;
         }
 
         const fps       = Math.max(CONFIG.MIN_FPS, Math.min(CONFIG.MAX_FPS, parseInt(elFPS.value, 10) || CONFIG.DEFAULT_FPS));
-        const blockSize = Math.max(CONFIG.MIN_BLOCK_SIZE, Math.min(CONFIG.MAX_BLOCK_SIZE, parseInt(elBlk.value, 10) || CONFIG.DEFAULT_BLOCK));
+        const blockSize = Math.max(CONFIG.MIN_BLOCK_SIZE, Math.min(CONFIG.MAX_BLOCK_SIZE, parseInt(elBlk.value, 10) || 200));
         const delay     = 1000 / fps;
 
         let encoder;

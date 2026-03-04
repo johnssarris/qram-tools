@@ -1,5 +1,5 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-v32';
+const CACHE_NAME = 'qram-v33';
 const ASSETS = [
   './index.html',
   './manifest.json',
