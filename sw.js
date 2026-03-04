@@ -1,5 +1,5 @@
 // Bump version when any cached file changes to force update
-const CACHE_NAME = 'qram-v30';
+const CACHE_NAME = 'qram-v31';
 const ASSETS = [
   './',
   './index.html',
@@ -8,7 +8,7 @@ const ASSETS = [
   './libs/qram-compress.js',
   './libs/qrcode.js',
   './libs/qram-utils.js',
-  './app.js',
+  './libs/app.js',
 ];
 
 self.addEventListener('install', event => {

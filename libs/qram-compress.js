@@ -1,27 +1,13 @@
 // Shared payload compression helpers for QRAM tools.
-//
-// Public API (window.qramCompress):
-//   maybeCompress(payload)   → Promise<{ data, compressed, originalSize, sentSize }>
 window.qramCompress = (() => {
   // ── Tunable thresholds ────────────────────────────────────────────────────
-  // Compression is kept only when ALL conditions are met:
-  //   1. envelope size / original size  ≤  MIN_COMPRESS_RATIO
-  //   2. bytes saved                    ≥  MIN_COMPRESS_SAVED_BYTES
-  // And attempted only when:
-  //   3. payload size                   ≥  MIN_COMPRESS_INPUT_BYTES
   const MIN_COMPRESS_RATIO        = 0.95;  // envelope must be ≤ 95 % of original
   const MIN_COMPRESS_SAVED_BYTES  = 50;    // must save at least 50 bytes
   const MIN_COMPRESS_INPUT_BYTES  = 50;    // skip attempt for tiny payloads
-
   // ── Envelope format ───────────────────────────────────────────────────────
-  // Bytes  0-4:  ASCII "QRAMC" magic
-  // Byte   5:    algo byte  (1 = gzip)
-  // Bytes  6-9:  original length, big-endian uint32
-  // Bytes 10+:   compressed payload
   const COMPRESS_MAGIC = new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x43]); // "QRAMC"
   const HEADER_LEN     = 10;
   const ALGO_GZIP      = 1;
-
   // ── Concatenate an array of Uint8Arrays ──────────────────────────────────
   function concatChunks(chunks) {
     let total = 0;
@@ -31,7 +17,6 @@ window.qramCompress = (() => {
     for (const c of chunks) { out.set(c, off); off += c.length; }
     return out;
   }
-
   // ── Low-level compress / decompress (native only) ────────────────────────
   async function _compressNative(data) {
     const cs     = new CompressionStream('gzip');
@@ -47,7 +32,6 @@ window.qramCompress = (() => {
     }
     return concatChunks(chunks);
   }
-
   // ── Envelope helpers ─────────────────────────────────────────────────────
   function _buildEnvelope(compressed, originalLen) {
     const out = new Uint8Array(HEADER_LEN + compressed.length);
@@ -60,21 +44,7 @@ window.qramCompress = (() => {
     out.set(compressed, HEADER_LEN);
     return out;
   }
-
   // ── Public: compress ─────────────────────────────────────────────────────
-  /**
-   * Opportunistically compress `payload` using native CompressionStream.
-   * If compression is unavailable or fails, returns the original payload.
-   * Compression is kept only when it satisfies both threshold conditions.
-   *
-   * @param  {Uint8Array} payload
-   * @returns {Promise<{
-   *   data:         Uint8Array,  // bytes to transmit (envelope or original)
-   *   compressed:   boolean,     // true  → envelope was applied
-   *   originalSize: number,
-   *   sentSize:     number
-   * }>}
-   */
   async function maybeCompress(payload) {
     const originalSize = payload.length;
 
