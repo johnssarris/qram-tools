@@ -1,19 +1,18 @@
     // ── CONFIG: tunables and named constants ────────────────────────────
-    const CONFIG = Object.freeze({
+    const CONFIG = {
       // Encoder limits
-      MAX_FILE_SIZE:     1 * 1024 * 1024,  // 1 MB
-      MIN_BLOCK_SIZE:    50,
-      MAX_BLOCK_SIZE:    20000,
-      DEFAULT_BLOCK:     200,
-      MIN_FPS:           1,
-      MAX_FPS:           60,
-      DEFAULT_FPS:       20,
-      QR_WIDTH:          350,
-      QR_ERROR_LEVEL:    'L',
+      MAX_FILE_SIZE:  1 * 1024 * 1024,  // 1 MB
+      MIN_BLOCK_SIZE: 50,
+      MAX_BLOCK_SIZE: 20000,
+      DEFAULT_BLOCK:  200,
+      MIN_FPS:        1,
+      MAX_FPS:        60,
+      DEFAULT_FPS:    20,
+      QR_WIDTH:       350,
 
       // File protocol magic: "QRAMF"
       FILE_MAGIC: new Uint8Array([0x51, 0x52, 0x41, 0x4D, 0x46]),
-    });
+    };
 
     // ── Encoder IIFE ──────────────────────────────────────────────────────
     (() => {
@@ -44,9 +43,8 @@
       let currentMode = 'text';
       let loadedFile = null;
 
-      const FILE_MAGIC    = CONFIG.FILE_MAGIC;
-      const MAX_FILE_SIZE = CONFIG.MAX_FILE_SIZE;
       const enc = new TextEncoder();
+      const { formatBytes } = qramUtils;
 
       // --- Mode switching ---
       function handleModeSwitch(mode) {
@@ -66,8 +64,8 @@
       // --- File handling ---
       function handleFile(file) {
         if (!file) return;
-        if (file.size > MAX_FILE_SIZE) {
-          showError(`File too large. Keep files under ${formatBytes(MAX_FILE_SIZE)} for practical QR transfer.`);
+        if (file.size > CONFIG.MAX_FILE_SIZE) {
+          showError(`File too large. Keep files under ${formatBytes(CONFIG.MAX_FILE_SIZE)} for practical QR transfer.`);
           return;
         }
         const reader = new FileReader();
@@ -148,10 +146,10 @@
       function updateDataSize() {
         let size = 0;
         if (currentMode === 'text') {
-          const txt = elTxt.value || '';
+          const txt = elTxt.value;
           if (txt) size = enc.encode(txt).length;
         } else if (loadedFile) {
-          size = FILE_MAGIC.length + 2 + loadedFile.nameBytes.length + loadedFile.data.length;
+          size = CONFIG.FILE_MAGIC.length + 2 + loadedFile.nameBytes.length + loadedFile.data.length;
         }
 
         if (size > 0) {
@@ -173,7 +171,7 @@
 
       async function updateCompressionPreview() {
         const payload = buildPayload();
-        if (!payload || payload.length === 0) return;
+        if (!payload) return;
         try {
           const cr = await qramCompress.maybeCompress(payload);
           if (cr.compressed) {
@@ -184,9 +182,6 @@
           }
         } catch (_) {}
       }
-
-      // --- Helpers ---
-      const { formatBytes } = qramUtils;
 
       function showError(msg, errObj) {
         const extra = errObj ? ('\n\n' + (errObj.stack || String(errObj))) : '';
@@ -221,17 +216,17 @@
       // --- Build payload ---
       function buildPayload() {
         if (currentMode === 'text') {
-          const txt = elTxt.value || '';
+          const txt = elTxt.value;
           if (!txt.trim()) return null;
           return enc.encode(txt);
         } else {
           if (!loadedFile) return null;
           const { nameBytes } = loadedFile;
-          const totalLen = FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
+          const totalLen = CONFIG.FILE_MAGIC.length + 2 + nameBytes.length + loadedFile.data.length;
           const payload = new Uint8Array(totalLen);
           let offset = 0;
-          payload.set(FILE_MAGIC, offset);
-          offset += FILE_MAGIC.length;
+          payload.set(CONFIG.FILE_MAGIC, offset);
+          offset += CONFIG.FILE_MAGIC.length;
           payload[offset]     = (nameBytes.length >> 8) & 0xFF;
           payload[offset + 1] = nameBytes.length & 0xFF;
           offset += 2;
@@ -301,7 +296,6 @@
               await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
                 width: CONFIG.QR_WIDTH,
                 margin: 1,
-                errorCorrectionLevel: CONFIG.QR_ERROR_LEVEL,
               });
             } catch (e) {
               showError('QR render error (QRCode.toCanvas failed).', e);
@@ -316,7 +310,7 @@
           showError('Streaming loop error.', e);
         } finally {
           try { await reader?.cancel(); } catch (e) {}
-          try { await stream?.cancel?.(); } catch (e) {}
+          try { await stream?.cancel(); } catch (e) {}
           reader = null;
           stream = null;
           running = false;
@@ -328,7 +322,7 @@
       function stop() {
         cancelRequested = true;
         try { reader?.cancel(); } catch (e) {}
-        try { stream?.cancel?.(); } catch (e) {}
+        try { stream?.cancel(); } catch (e) {}
       }
 
       elStart.addEventListener('click', start);
