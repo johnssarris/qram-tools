@@ -6,9 +6,7 @@
  */
 var QRCode = function(t) {
   "use strict";
-  var r, e = function() {
-      return "function" == typeof Promise && Promise.prototype && Promise.prototype.then
-    },
+  var r,
     n = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532, 581, 655, 733, 815, 901, 991, 1085, 1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051, 2185, 2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532, 3706],
     o = function(t) {
       if (!t) throw new Error('"version" cannot be null or undefined');
@@ -867,84 +865,22 @@ var QRCode = function(t) {
         function(t, r, e) {
           t.clearRect(0, 0, r.width, r.height), r.style || (r.style = {}), r.height = e, r.width = e, r.style.height = e + "px", r.style.width = e + "px"
         }(i, o, a), i.putImageData(u, 0, 0), o
-    }, r.renderToDataURL = function(t, e, n) {
-      var o = n;
-      void 0 !== o || e && e.getContext || (o = e, e = void 0), o || (o = {});
-      var a = r.render(t, e, o),
-        i = o.type || "image/png",
-        u = o.rendererOpts || {};
-      return a.toDataURL(i, u.quality)
     }
   }));
 
-  function ht(t, r) {
-    var e = t.a / 255,
-      n = r + '="' + t.hex + '"';
-    return e < 1 ? n + " " + r + '-opacity="' + e.toFixed(2).slice(1) + '"' : n
-  }
-
-  function ct(t, r, e) {
-    var n = t + r;
-    return void 0 !== e && (n += " " + e), n
-  }
-  ft.render, ft.renderToDataURL;
-  var gt = function(t, r, e) {
-    var n = st.getOptions(r),
-      o = t.modules.size,
-      a = t.modules.data,
-      i = o + 2 * n.margin,
-      u = n.color.light.a ? "<path " + ht(n.color.light, "fill") + ' d="M0 0h' + i + "v" + i + 'H0z"/>' : "",
-      s = "<path " + ht(n.color.dark, "stroke") + ' d="' + function(t, r, e) {
-        for (var n = "", o = 0, a = !1, i = 0, u = 0; u < t.length; u++) {
-          var s = Math.floor(u % r),
-            f = Math.floor(u / r);
-          s || a || (a = !0), t[u] ? (i++, u > 0 && s > 0 && t[u - 1] || (n += a ? ct("M", s + e, .5 + f + e) : ct("m", o, 0), o = 0, a = !1), s + 1 < r && t[u + 1] || (n += ct("h", i), i = 0)) : o++
-        }
-        return n
-      }(a, o, n.margin) + '"/>',
-      f = 'viewBox="0 0 ' + i + " " + i + '"',
-      h = '<svg xmlns="http://www.w3.org/2000/svg" ' + (n.width ? 'width="' + n.width + '" height="' + n.width + '" ' : "") + f + ' shape-rendering="crispEdges">' + u + s + "</svg>\n";
-    return "function" == typeof e && e(null, h), h
-  };
-
-  function dt(t, r, n, o, a) {
+  function dt(t, r, n, o) {
     var i = [].slice.call(arguments, 1),
-      u = i.length,
-      s = "function" == typeof i[u - 1];
-    if (!s && !e()) throw new Error("Callback required as last argument");
-    if (!s) {
-      if (u < 1) throw new Error("Too few arguments provided");
-      return 1 === u ? (n = r, r = o = void 0) : 2 !== u || r.getContext || (o = n, n = r, r = void 0), new Promise((function(e, a) {
-        try {
-          var i = ut(n, o);
-          e(t(i, r, o))
-        } catch (t) {
-          a(t)
-        }
-      }))
-    }
-    if (u < 2) throw new Error("Too few arguments provided");
-    2 === u ? (a = n, n = r, r = o = void 0) : 3 === u && (r.getContext && void 0 === a ? (a = o, o = void 0) : (a = o, o = n, n = r, r = void 0));
-    try {
-      var f = ut(n, o);
-      a(null, t(f, r, o))
-    } catch (t) {
-      a(t)
-    }
+      u = i.length;
+    if (u < 1) throw new Error("Too few arguments provided");
+    return 1 === u ? (n = r, r = o = void 0) : 2 !== u || r.getContext || (o = n, n = r, r = void 0), new Promise(function(e, a) {
+      try {
+        var i = ut(n, o);
+        e(t(i, r, o))
+      } catch (t) {
+        a(t)
+      }
+    })
   }
-  var lt = ut,
-    vt = dt.bind(null, ft.render),
-    pt = dt.bind(null, ft.renderToDataURL),
-    wt = dt.bind(null, (function(t, r, e) {
-      return gt(t, e)
-    })),
-    mt = {
-      create: lt,
-      toCanvas: vt,
-      toDataURL: pt,
-      toString: wt
-    };
-  return t.create = lt, t.default = mt, t.toCanvas = vt, t.toDataURL = pt, t.toString = wt, Object.defineProperty(t, "__esModule", {
-    value: !0
-  }), t
+  var vt = dt.bind(null, ft.render);
+  return t.toCanvas = vt, t
 }({});

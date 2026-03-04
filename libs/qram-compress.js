@@ -2,9 +2,6 @@
 //
 // Public API (window.qramCompress):
 //   maybeCompress(payload)   → Promise<{ data, compressed, originalSize, sentSize }>
-//   maybeDecompress(data)    → Promise<{ data, wasCompressed, wireSize }>
-//   isCompressed(data)       → boolean
-//   selfTest()               → Promise<boolean>   (call from DevTools console)
 window.qramCompress = (() => {
   // ── Tunable thresholds ────────────────────────────────────────────────────
   // Compression is kept only when ALL conditions are met:
@@ -51,21 +48,6 @@ window.qramCompress = (() => {
     return concatChunks(chunks);
   }
 
-  async function _decompressNative(data) {
-    const ds     = new DecompressionStream('gzip');
-    const writer = ds.writable.getWriter();
-    writer.write(data);
-    writer.close();
-    const chunks = [];
-    const reader = ds.readable.getReader();
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-    return concatChunks(chunks);
-  }
-
   // ── Envelope helpers ─────────────────────────────────────────────────────
   function _buildEnvelope(compressed, originalLen) {
     const out = new Uint8Array(HEADER_LEN + compressed.length);
@@ -77,19 +59,6 @@ window.qramCompress = (() => {
     out[9] =  originalLen         & 0xFF;
     out.set(compressed, HEADER_LEN);
     return out;
-  }
-
-  /**
-   * Returns true if `data` begins with the QRAMC magic bytes.
-   * @param {Uint8Array} data
-   * @returns {boolean}
-   */
-  function isCompressed(data) {
-    if (data.length < HEADER_LEN) return false;
-    for (let i = 0; i < COMPRESS_MAGIC.length; i++) {
-      if (data[i] !== COMPRESS_MAGIC[i]) return false;
-    }
-    return true;
   }
 
   // ── Public: compress ─────────────────────────────────────────────────────
@@ -132,96 +101,5 @@ window.qramCompress = (() => {
     return { data: envelope, compressed: true, originalSize, sentSize: envelope.length };
   }
 
-  // ── Public: decompress ───────────────────────────────────────────────────
-  /**
-   * Decompress if `data` begins with the QRAMC magic; otherwise return as-is.
-   * Uses native DecompressionStream; throws if decompression fails.
-   *
-   * @param  {Uint8Array} data
-   * @returns {Promise<{
-   *   data:          Uint8Array,  // original (decompressed) bytes
-   *   wasCompressed: boolean,
-   *   wireSize:      number       // compressed byte count that was transmitted
-   * }>}
-   * @throws if data is a QRAMC envelope but decompression fails
-   */
-  async function maybeDecompress(data) {
-    if (!isCompressed(data)) {
-      return { data, wasCompressed: false, wireSize: data.length };
-    }
-
-    const wireSize = data.length;
-    const algo     = data[5];
-    const origLen  = ((data[6] << 24) | (data[7] << 16) | (data[8] << 8) | data[9]) >>> 0;
-    const payload  = data.slice(HEADER_LEN);
-
-    if (algo !== ALGO_GZIP) {
-      throw new Error(`qram-compress: unknown algo byte ${algo}`);
-    }
-
-    const out = await _decompressNative(payload);
-
-    if (out.length !== origLen) {
-      console.warn(`qram-compress: length mismatch — expected ${origLen}, got ${out.length}`);
-    }
-
-    return { data: out, wasCompressed: true, wireSize };
-  }
-
-  // ── Public: self-test ────────────────────────────────────────────────────
-  /**
-   * In-browser round-trip sanity check.
-   * Call from the DevTools console:  await qramCompress.selfTest()
-   *
-   * @returns {Promise<boolean>} true if all checks pass
-   */
-  async function selfTest() {
-    const L = '[qramCompress.selfTest]';
-    let allOk = true;
-
-    // ── Test 1: compressible text ────────────────────────────────────────
-    const text  = 'Hello, QRAM compression! '.repeat(20);
-    const input = new TextEncoder().encode(text);
-    console.log(L, 'input:', input.length, 'bytes');
-
-    const { data: wire, compressed, sentSize } = await maybeCompress(input);
-    console.log(L, 'compressed:', compressed, '| sentSize:', sentSize, 'bytes',
-                compressed ? `(${((sentSize / input.length) * 100).toFixed(1)} % of original)` : '(threshold not met)');
-
-    const { data: recovered, wasCompressed } = await maybeDecompress(wire);
-    const recoveredText = new TextDecoder().decode(recovered);
-    const t1ok = recoveredText === text && wasCompressed === compressed;
-    console.log(L, t1ok ? '✓' : '✗', 'round-trip text OK:', t1ok);
-    if (!t1ok) console.error(L, 'mismatch — first 80 chars:', recoveredText.slice(0, 80));
-    allOk = allOk && t1ok;
-
-    // ── Test 2: uncompressed passthrough ─────────────────────────────────
-    const raw                       = new Uint8Array([1, 2, 3, 4, 5]);
-    const { data: pt, wasCompressed: wc2 } = await maybeDecompress(raw);
-    const t2ok = !wc2 && pt === raw; // same reference when passthrough
-    console.log(L, t2ok ? '✓' : '✗', 'passthrough OK:', t2ok);
-    allOk = allOk && t2ok;
-
-    // ── Test 3: tiny payload skipped ─────────────────────────────────────
-    const tiny                      = new TextEncoder().encode('hi');
-    const { compressed: t3c, data: t3d } = await maybeCompress(tiny);
-    const t3ok = !t3c && t3d === tiny;
-    console.log(L, t3ok ? '✓' : '✗', 'tiny payload skip OK:', t3ok);
-    allOk = allOk && t3ok;
-
-    console.log(L, allOk ? '✓ all tests passed' : '✗ some tests FAILED');
-    return allOk;
-  }
-
-  return {
-    maybeCompress,
-    maybeDecompress,
-    isCompressed,
-    selfTest,
-    // expose constants so callers can read/document the thresholds
-    COMPRESS_MAGIC,
-    MIN_COMPRESS_RATIO,
-    MIN_COMPRESS_SAVED_BYTES,
-    MIN_COMPRESS_INPUT_BYTES,
-  };
+  return { maybeCompress };
 })();

@@ -32,7 +32,9 @@
       const elFileInput     = document.getElementById('file-input');
       const elTextInput     = document.getElementById('text-input');
       const elFileInputArea = document.getElementById('file-input-area');
-      const modeTabs = document.querySelectorAll('.mode-tab');
+      const modeTabs   = document.querySelectorAll('.mode-tab');
+      const encSetup   = document.getElementById('enc-setup');
+      const encLive    = document.getElementById('enc-live');
 
       let running = false;
       let cancelRequested = false;
@@ -198,9 +200,6 @@
         elErr.style.display = 'none';
       }
 
-      const encSetup = document.getElementById('enc-setup');
-      const encLive  = document.getElementById('enc-live');
-
       function setEncodeView(isRunning) {
         encSetup.style.display = isRunning ? 'none' : '';
         encLive.style.display  = isRunning ? '' : 'none';
@@ -268,16 +267,16 @@
         const blockSize = Math.max(CONFIG.MIN_BLOCK_SIZE, Math.min(CONFIG.MAX_BLOCK_SIZE, parseInt(elBlk.value, 10) || CONFIG.DEFAULT_BLOCK));
         const delay     = 1000 / fps;
 
-        let enc;
+        let encoder;
         try {
-          enc = new qram.Encoder({ data: sendData, blockSize });
+          encoder = new qram.Encoder({ data: sendData, blockSize });
         } catch (e) {
           showError('Failed to create qram.Encoder (bad options?)', e);
           return;
         }
 
         try {
-          stream = await enc.createReadableStream();
+          stream = await encoder.createReadableStream();
           reader = stream.getReader();
         } catch (e) {
           showError('Failed to create/read QRAM stream.', e);
