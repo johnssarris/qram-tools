@@ -259,7 +259,7 @@
 
         let sendData = data;
         if (elCompress.checked && window.qramCompress) {
-          const cr = await qramPerf.timeAsync('compress', () => qramCompress.maybeCompress(data));
+          const cr = await qramCompress.maybeCompress(data);
           sendData = cr.data;
         }
 
@@ -291,44 +291,30 @@
         const blocks = Math.ceil(sendData.length / blockSize);
         const modeLabel = currentMode === 'file' ? `file: ${loadedFile.name}, ` : '';
         elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks`;
-        qramPerf.sessionStart('encode', {
-          fps,
-          blockSize,
-          compress:     elCompress.checked,
-          payloadBytes: data.length,
-          wireBytes:    sendData.length,
-          blocks,
-        });
 
         try {
           while (!cancelRequested) {
-            qramPerf.start('encode-frame');
             const { value: pkt, done } = await reader.read();
-            if (done) { qramPerf.end('encode-frame'); break; }
+            if (done) break;
 
             try {
-              qramPerf.start('qr-render');
               await QRCode.toCanvas(elCanvas, [{ data: pkt.data, mode: 'byte' }], {
                 width: CONFIG.QR_WIDTH,
                 margin: 1,
                 errorCorrectionLevel: CONFIG.QR_ERROR_LEVEL,
               });
-              qramPerf.end('qr-render');
             } catch (e) {
-              qramPerf.end('qr-render');
               showError('QR render error (QRCode.toCanvas failed).', e);
               break;
             }
 
             n++;
             elStats.textContent = `${modeLabel}${formatBytes(sendData.length)}, ${blocks} blocks, packet #${n}`;
-            qramPerf.end('encode-frame');
             await new Promise(ok => setTimeout(ok, delay));
           }
         } catch (e) {
           showError('Streaming loop error.', e);
         } finally {
-          qramPerf.sessionEnd({ packetsSent: n });
           try { await reader?.cancel(); } catch (e) {}
           try { await stream?.cancel?.(); } catch (e) {}
           reader = null;
@@ -388,10 +374,3 @@
     document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
     document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
 
-    // ── Perf report download button ───────────────────────────────────────
-    // Only shown when ?perf=1 is active — invisible to normal users.
-    if (window.qramPerf?.isEnabled) {
-      const perfEncBtn = document.getElementById('perf-dl-enc');
-      perfEncBtn.style.display = '';
-      perfEncBtn.addEventListener('click', () => qramPerf.download());
-    }
