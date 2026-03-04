@@ -1,10 +1,5 @@
 // Shared payload compression helpers for QRAM tools.
 //
-// Include BEFORE this file (optional — only needed as fallback):
-//   <script src="./libs/pako.min.js"></script>
-// Include this file:
-//   <script src="./libs/qram-compress.js"></script>
-//
 // Public API (window.qramCompress):
 //   maybeCompress(payload)   → Promise<{ data, compressed, originalSize, sentSize }>
 //   maybeDecompress(data)    → Promise<{ data, wasCompressed, wireSize }>
@@ -30,16 +25,6 @@ window.qramCompress = (() => {
   const HEADER_LEN     = 10;
   const ALGO_GZIP      = 1;
 
-  // ── Capability detection ─────────────────────────────────────────────────
-  function hasNativeCompression() {
-    return typeof CompressionStream !== 'undefined';
-  }
-
-  function hasPako() {
-    return typeof window.pako !== 'undefined' &&
-           typeof window.pako.gzip === 'function';
-  }
-
   // ── Concatenate an array of Uint8Arrays ──────────────────────────────────
   function concatChunks(chunks) {
     let total = 0;
@@ -50,7 +35,7 @@ window.qramCompress = (() => {
     return out;
   }
 
-  // ── Low-level compress ───────────────────────────────────────────────────
+  // ── Low-level compress / decompress (native only) ────────────────────────
   async function _compressNative(data) {
     const cs     = new CompressionStream('gzip');
     const writer = cs.writable.getWriter();
@@ -66,11 +51,6 @@ window.qramCompress = (() => {
     return concatChunks(chunks);
   }
 
-  function _compressPako(data) {
-    return window.pako.gzip(data); // returns Uint8Array
-  }
-
-  // ── Low-level decompress ─────────────────────────────────────────────────
   async function _decompressNative(data) {
     const ds     = new DecompressionStream('gzip');
     const writer = ds.writable.getWriter();
@@ -84,10 +64,6 @@ window.qramCompress = (() => {
       chunks.push(value);
     }
     return concatChunks(chunks);
-  }
-
-  function _decompressPako(data) {
-    return window.pako.ungzip(data); // returns Uint8Array
   }
 
   // ── Envelope helpers ─────────────────────────────────────────────────────
@@ -118,8 +94,8 @@ window.qramCompress = (() => {
 
   // ── Public: compress ─────────────────────────────────────────────────────
   /**
-   * Opportunistically compress `payload` using gzip.
-   * Priority: native CompressionStream → pako → skip (send uncompressed).
+   * Opportunistically compress `payload` using native CompressionStream.
+   * If compression is unavailable or fails, returns the original payload.
    * Compression is kept only when it satisfies both threshold conditions.
    *
    * @param  {Uint8Array} payload
@@ -133,19 +109,12 @@ window.qramCompress = (() => {
   async function maybeCompress(payload) {
     const originalSize = payload.length;
 
-    if (originalSize < MIN_COMPRESS_INPUT_BYTES) {
+    if (originalSize < MIN_COMPRESS_INPUT_BYTES || typeof CompressionStream === 'undefined') {
       return { data: payload, compressed: false, originalSize, sentSize: originalSize };
     }
 
     let compressedBytes = null;
-
-    if (hasNativeCompression()) {
-      try { compressedBytes = await _compressNative(payload); } catch (_) {}
-    }
-
-    if (!compressedBytes && hasPako()) {
-      try { compressedBytes = _compressPako(payload); } catch (_) {}
-    }
+    try { compressedBytes = await _compressNative(payload); } catch (_) {}
 
     if (!compressedBytes) {
       return { data: payload, compressed: false, originalSize, sentSize: originalSize };
@@ -166,7 +135,7 @@ window.qramCompress = (() => {
   // ── Public: decompress ───────────────────────────────────────────────────
   /**
    * Decompress if `data` begins with the QRAMC magic; otherwise return as-is.
-   * Priority: native DecompressionStream → pako → throw.
+   * Uses native DecompressionStream; throws if decompression fails.
    *
    * @param  {Uint8Array} data
    * @returns {Promise<{
@@ -174,7 +143,7 @@ window.qramCompress = (() => {
    *   wasCompressed: boolean,
    *   wireSize:      number       // compressed byte count that was transmitted
    * }>}
-   * @throws if data is a QRAMC envelope but decompression fails entirely
+   * @throws if data is a QRAMC envelope but decompression fails
    */
   async function maybeDecompress(data) {
     if (!isCompressed(data)) {
@@ -190,19 +159,7 @@ window.qramCompress = (() => {
       throw new Error(`qram-compress: unknown algo byte ${algo}`);
     }
 
-    let out = null;
-
-    if (hasNativeCompression()) {
-      try { out = await _decompressNative(payload); } catch (_) {}
-    }
-
-    if (!out && hasPako()) {
-      try { out = _decompressPako(payload); } catch (_) {}
-    }
-
-    if (!out) {
-      throw new Error('qram-compress: decompression failed (no CompressionStream and pako unavailable)');
-    }
+    const out = await _decompressNative(payload);
 
     if (out.length !== origLen) {
       console.warn(`qram-compress: length mismatch — expected ${origLen}, got ${out.length}`);
