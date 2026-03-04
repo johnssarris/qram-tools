@@ -6,8 +6,7 @@
  */
 var QRCode = function(t) {
   "use strict";
-  var r,
-    n = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532, 581, 655, 733, 815, 901, 991, 1085, 1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051, 2185, 2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532, 3706],
+  var n = [0, 26, 44, 70, 100, 134, 172, 196, 242, 292, 346, 404, 466, 532, 581, 655, 733, 815, 901, 991, 1085, 1156, 1258, 1364, 1474, 1588, 1706, 1828, 1921, 2051, 2185, 2323, 2465, 2611, 2761, 2876, 3034, 3196, 3362, 3532, 3706],
     o = function(t) {
       if (!t) throw new Error('"version" cannot be null or undefined');
       if (t < 1 || t > 40) throw new Error('"version" should be in range from 1 to 40');
@@ -19,16 +18,6 @@ var QRCode = function(t) {
     i = function(t) {
       for (var r = 0; 0 !== t;) r++, t >>>= 1;
       return r
-    },
-    u = function(t) {
-      if ("function" != typeof t) throw new Error('"toSJISFunc" is not a valid function.');
-      r = t
-    },
-    s = function() {
-      return void 0 !== r
-    },
-    f = function(t) {
-      return r(t)
     };
 
   function h(t, r) {
@@ -295,32 +284,6 @@ var QRCode = function(t) {
     b = function(t) {
       return !isNaN(t) && t >= 1 && t <= 40
     },
-    U = "(?:[u3000-u303F]|[u3040-u309F]|[u30A0-u30FF]|[uFF00-uFFEF]|[u4E00-u9FAF]|[u2605-u2606]|[u2190-u2195]|u203B|[u2010u2015u2018u2019u2025u2026u201Cu201Du2225u2260]|[u0391-u0451]|[u00A7u00A8u00B1u00B4u00D7u00F7])+",
-    x = "(?:(?![A-Z0-9 $%*+\\-./:]|" + (U = U.replace(/u/g, "\\u")) + ")(?:.|[\r\n]))+",
-    k = new RegExp(U, "g"),
-    F = new RegExp("[^A-Z0-9 $%*+\\-./:]+", "g"),
-    S = new RegExp(x, "g"),
-    D = new RegExp("[0-9]+", "g"),
-    Y = new RegExp("[A-Z $%*+\\-./:]+", "g"),
-    _ = new RegExp("^" + U + "$"),
-    z = new RegExp("^[0-9]+$"),
-    H = new RegExp("^[A-Z0-9 $%*+\\-./:]+$"),
-    J = {
-      KANJI: k,
-      BYTE_KANJI: F,
-      BYTE: S,
-      NUMERIC: D,
-      ALPHANUMERIC: Y,
-      testKanji: function(t) {
-        return _.test(t)
-      },
-      testNumeric: function(t) {
-        return z.test(t)
-      },
-      testAlphanumeric: function(t) {
-        return H.test(t)
-      }
-    },
     K = h((function(t, r) {
       r.NUMERIC = {
         id: "Numeric",
@@ -344,11 +307,6 @@ var QRCode = function(t) {
         if (!t.ccBits) throw new Error("Invalid mode: " + t);
         if (!b(r)) throw new Error("Invalid version: " + r);
         return r >= 1 && r < 10 ? t.ccBits[0] : r < 27 ? t.ccBits[1] : t.ccBits[2]
-      }, r.getBestModeForData = function(t) {
-        return J.testNumeric(t) ? r.NUMERIC : J.testAlphanumeric(t) ? r.ALPHANUMERIC : J.testKanji(t) ? r.KANJI : r.BYTE
-      }, r.toString = function(t) {
-        if (t && t.id) return t.id;
-        throw new Error("Invalid mode")
       }, r.isValid = function(t) {
         return t && t.bit && t.ccBits
       }, r.from = function(t, e) {
@@ -374,7 +332,6 @@ var QRCode = function(t) {
         }
       }
     }));
-  K.NUMERIC, K.ALPHANUMERIC, K.BYTE, K.KANJI, K.MIXED, K.getCharCountIndicator, K.getBestModeForData, K.isValid;
   var O = h((function(t, r) {
     var e = i(7973);
 
@@ -436,43 +393,6 @@ var QRCode = function(t) {
       return 21522 ^ (e << 10 | n)
     };
 
-  function q(t) {
-    this.mode = K.NUMERIC, this.data = t.toString()
-  }
-  q.getBitsLength = function(t) {
-    return 10 * Math.floor(t / 3) + (t % 3 ? t % 3 * 3 + 1 : 0)
-  }, q.prototype.getLength = function() {
-    return this.data.length
-  }, q.prototype.getBitsLength = function() {
-    return q.getBitsLength(this.data.length)
-  }, q.prototype.write = function(t) {
-    var r, e, n;
-    for (r = 0; r + 3 <= this.data.length; r += 3) e = this.data.substr(r, 3), n = parseInt(e, 10), t.put(n, 10);
-    var o = this.data.length - r;
-    o > 0 && (e = this.data.substr(r), n = parseInt(e, 10), t.put(n, 3 * o + 1))
-  };
-  var j = q,
-    $ = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", " ", "$", "%", "*", "+", "-", ".", "/", ":"];
-
-  function X(t) {
-    this.mode = K.ALPHANUMERIC, this.data = t
-  }
-  X.getBitsLength = function(t) {
-    return 11 * Math.floor(t / 2) + t % 2 * 6
-  }, X.prototype.getLength = function() {
-    return this.data.length
-  }, X.prototype.getBitsLength = function() {
-    return X.getBitsLength(this.data.length)
-  }, X.prototype.write = function(t) {
-    var r;
-    for (r = 0; r + 2 <= this.data.length; r += 2) {
-      var e = 45 * $.indexOf(this.data[r]);
-      e += $.indexOf(this.data[r + 1]), t.put(e, 11)
-    }
-    this.data.length % 2 && t.put($.indexOf(this.data[r]), 6)
-  };
-  var Z = X;
-
   function W(t) {
     this.mode = K.BYTE, "string" == typeof t && (t = function(t) {
       for (var r = [], e = t.length, n = 0; n < e; n++) {
@@ -497,209 +417,11 @@ var QRCode = function(t) {
   };
   var G = W;
 
-  function tt(t) {
-    this.mode = K.KANJI, this.data = t
-  }
-  tt.getBitsLength = function(t) {
-    return 13 * t
-  }, tt.prototype.getLength = function() {
-    return this.data.length
-  }, tt.prototype.getBitsLength = function() {
-    return tt.getBitsLength(this.data.length)
-  }, tt.prototype.write = function(t) {
-    var r;
-    for (r = 0; r < this.data.length; r++) {
-      var e = f(this.data[r]);
-      if (e >= 33088 && e <= 40956) e -= 33088;
-      else {
-        if (!(e >= 57408 && e <= 60351)) throw new Error("Invalid SJIS character: " + this.data[r] + "\nMake sure your charset is UTF-8");
-        e -= 49472
-      }
-      e = 192 * (e >>> 8 & 255) + (255 & e), t.put(e, 13)
-    }
-  };
-  var rt = tt,
-    et = h((function(t) {
-      var r = {
-        single_source_shortest_paths: function(t, e, n) {
-          var o = {},
-            a = {};
-          a[e] = 0;
-          var i, u, s, f, h, c, g, d = r.PriorityQueue.make();
-          for (d.push(e, 0); !d.empty();)
-            for (s in u = (i = d.pop()).value, f = i.cost, h = t[u] || {}) h.hasOwnProperty(s) && (c = f + h[s], g = a[s], (void 0 === a[s] || g > c) && (a[s] = c, d.push(s, c), o[s] = u));
-          if (void 0 !== n && void 0 === a[n]) {
-            var l = ["Could not find a path from ", e, " to ", n, "."].join("");
-            throw new Error(l)
-          }
-          return o
-        },
-        extract_shortest_path_from_predecessor_list: function(t, r) {
-          for (var e = [], n = r; n;) e.push(n), n = t[n];
-          return e.reverse(), e
-        },
-        find_path: function(t, e, n) {
-          var o = r.single_source_shortest_paths(t, e, n);
-          return r.extract_shortest_path_from_predecessor_list(o, n)
-        },
-        PriorityQueue: {
-          make: function(t) {
-            var e, n = r.PriorityQueue,
-              o = {};
-            for (e in t = t || {}, n) n.hasOwnProperty(e) && (o[e] = n[e]);
-            return o.queue = [], o.sorter = t.sorter || n.default_sorter, o
-          },
-          default_sorter: function(t, r) {
-            return t.cost - r.cost
-          },
-          push: function(t, r) {
-            var e = {
-              value: t,
-              cost: r
-            };
-            this.queue.push(e), this.queue.sort(this.sorter)
-          },
-          pop: function() {
-            return this.queue.shift()
-          },
-          empty: function() {
-            return 0 === this.queue.length
-          }
-        }
-      };
-      t.exports = r
-    })),
-    nt = h((function(t, r) {
-      function e(t) {
-        return unescape(encodeURIComponent(t)).length
-      }
-
-      function n(t, r, e) {
-        for (var n, o = []; null !== (n = t.exec(e));) o.push({
-          data: n[0],
-          index: n.index,
-          mode: r,
-          length: n[0].length
-        });
-        return o
-      }
-
-      function o(t) {
-        var r, e, o = n(J.NUMERIC, K.NUMERIC, t),
-          a = n(J.ALPHANUMERIC, K.ALPHANUMERIC, t);
-        return s() ? (r = n(J.BYTE, K.BYTE, t), e = n(J.KANJI, K.KANJI, t)) : (r = n(J.BYTE_KANJI, K.BYTE, t), e = []), o.concat(a, r, e).sort((function(t, r) {
-          return t.index - r.index
-        })).map((function(t) {
-          return {
-            data: t.data,
-            mode: t.mode,
-            length: t.length
-          }
-        }))
-      }
-
-      function a(t, r) {
-        switch (r) {
-          case K.NUMERIC:
-            return j.getBitsLength(t);
-          case K.ALPHANUMERIC:
-            return Z.getBitsLength(t);
-          case K.KANJI:
-            return rt.getBitsLength(t);
-          case K.BYTE:
-            return G.getBitsLength(t)
-        }
-      }
-
-      function i(t, r) {
-        var e, n = K.getBestModeForData(t);
-        if ((e = K.from(r, n)) !== K.BYTE && e.bit < n.bit) throw new Error('"' + t + '" cannot be encoded with mode ' + K.toString(e) + ".\n Suggested mode is: " + K.toString(n));
-        switch (e !== K.KANJI || s() || (e = K.BYTE), e) {
-          case K.NUMERIC:
-            return new j(t);
-          case K.ALPHANUMERIC:
-            return new Z(t);
-          case K.KANJI:
-            return new rt(t);
-          case K.BYTE:
-            return new G(t)
-        }
-      }
+  var nt = h((function(t, r) {
       r.fromArray = function(t) {
         return t.reduce((function(t, r) {
-          return "string" == typeof r ? t.push(i(r, null)) : r.data && t.push(i(r.data, r.mode)), t
+          return r.data && t.push(new G(r.data)), t
         }), [])
-      }, r.fromString = function(t, n) {
-        for (var i = function(t, r) {
-            for (var e = {}, n = {
-                start: {}
-              }, o = ["start"], i = 0; i < t.length; i++) {
-              for (var u = t[i], s = [], f = 0; f < u.length; f++) {
-                var h = u[f],
-                  c = "" + i + f;
-                s.push(c), e[c] = {
-                  node: h,
-                  lastCount: 0
-                }, n[c] = {};
-                for (var g = 0; g < o.length; g++) {
-                  var d = o[g];
-                  e[d] && e[d].node.mode === h.mode ? (n[d][c] = a(e[d].lastCount + h.length, h.mode) - a(e[d].lastCount, h.mode), e[d].lastCount += h.length) : (e[d] && (e[d].lastCount = h.length), n[d][c] = a(h.length, h.mode) + 4 + K.getCharCountIndicator(h.mode, r))
-                }
-              }
-              o = s
-            }
-            for (var l = 0; l < o.length; l++) n[o[l]].end = 0;
-            return {
-              map: n,
-              table: e
-            }
-          }(function(t) {
-            for (var r = [], n = 0; n < t.length; n++) {
-              var o = t[n];
-              switch (o.mode) {
-                case K.NUMERIC:
-                  r.push([o, {
-                    data: o.data,
-                    mode: K.ALPHANUMERIC,
-                    length: o.length
-                  }, {
-                    data: o.data,
-                    mode: K.BYTE,
-                    length: o.length
-                  }]);
-                  break;
-                case K.ALPHANUMERIC:
-                  r.push([o, {
-                    data: o.data,
-                    mode: K.BYTE,
-                    length: o.length
-                  }]);
-                  break;
-                case K.KANJI:
-                  r.push([o, {
-                    data: o.data,
-                    mode: K.BYTE,
-                    length: e(o.data)
-                  }]);
-                  break;
-                case K.BYTE:
-                  r.push([{
-                    data: o.data,
-                    mode: K.BYTE,
-                    length: e(o.data)
-                  }])
-              }
-            }
-            return r
-          }(o(t)), n), u = et.find_path(i.map, "start", "end"), s = [], f = 1; f < u.length - 1; f++) s.push(i.table[u[f]].node);
-        return r.fromArray(function(t) {
-          return t.reduce((function(t, r) {
-            var e = t.length - 1 >= 0 ? t[t.length - 1] : null;
-            return e && e.mode === r.mode ? (t[t.length - 1].data += r.data, t) : (t.push(r), t)
-          }), [])
-        }(s))
-      }, r.rawSplit = function(t) {
-        return r.fromArray(o(t))
       }
     }));
 
@@ -734,17 +456,7 @@ var QRCode = function(t) {
   }
 
   function it(t, r, e, n) {
-    var a;
-    if (Array.isArray(t)) a = nt.fromArray(t);
-    else {
-      if ("string" != typeof t) throw new Error("Invalid data");
-      var i = r;
-      if (!i) {
-        var u = nt.rawSplit(t);
-        i = O.getBestVersionForData(u, e)
-      }
-      a = nt.fromString(t, i || 40)
-    }
+    var a = nt.fromArray(t);
     var s = O.getBestVersionForData(a, e);
     if (!s) throw new Error("The amount of data is too big to be stored in a QR Code");
     if (r) {
@@ -792,11 +504,10 @@ var QRCode = function(t) {
         segments: a
       }
   }
-  nt.fromArray, nt.fromString, nt.rawSplit;
   var ut = function(t, r) {
       if (void 0 === t || "" === t) throw new Error("No input text");
       var e, n, o = c.M;
-      return void 0 !== r && (o = c.from(r.errorCorrectionLevel, c.M), e = O.from(r.version), n = E.from(r.maskPattern), r.toSJISFunc && u(r.toSJISFunc)), it(t, e, o, n)
+      return void 0 !== r && (o = c.from(r.errorCorrectionLevel, c.M), e = O.from(r.version), n = E.from(r.maskPattern)), it(t, e, o, n)
     },
     st = h((function(t, r) {
       function e(t) {
