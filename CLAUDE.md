@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-QRAM Tools (`py_encode` branch) transfers text and files from a locked-down work PC to an iPhone using animated QR codes and fountain codes (LT codes). Missed or duplicated frames don't matter — the receiver only needs enough unique packets for reconstruction.
+QRAM Tools (`py_encode` branch) transfers text and files from a PC to an iPhone using animated QR codes and fountain codes (LT codes). Missed or duplicated frames don't matter — the receiver only needs enough unique packets for reconstruction.
 
 ## Development
 

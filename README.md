@@ -1,8 +1,7 @@
 # QRAM Tools — Encoder
 
-Transfer text and files from a locked-down work PC to an iPhone by
-displaying animated QR codes on screen and scanning them with the
-phone's camera.
+Transfer text and files device to device by displaying animated
+QR codes on screen and scanning them with device's camera.
 
 Uses fountain codes (LT codes) so missed or duplicated frames don't
 matter — the receiver only needs enough unique packets to reconstruct
