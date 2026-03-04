@@ -12,11 +12,8 @@ var QRCode = function(t) {
       return r
     };
 
-  var ECL = { bit: 1 };
-
   // ── BitMatrix ──────────────────────────────────────────────────────────────
   function l(t) {
-    if (!t || t < 1) throw new Error("BitMatrix size must be defined and greater than 0");
     this.size = t, this.data = new Uint8Array(t * t), this.reservedBit = new Uint8Array(t * t)
   }
   l.prototype.set = function(t, r, e, n) {
@@ -110,9 +107,7 @@ var QRCode = function(t) {
 
   // ── EC block/codeword counts (L only) ─────────────────────────────────────
   var y = [1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
-    A = [7, 10, 15, 20, 26, 36, 40, 48, 60, 72, 80, 96, 104, 120, 132, 144, 168, 180, 196, 224, 224, 252, 270, 300, 312, 336, 360, 390, 420, 450, 480, 510, 540, 570, 570, 600, 630, 660, 720, 750],
-    I = function(t) { return y[t - 1] },
-    M = function(t) { return A[t - 1] };
+    A = [7, 10, 15, 20, 26, 36, 40, 48, 60, 72, 80, 96, 104, 120, 132, 144, 168, 180, 196, 224, 224, 252, 270, 300, 312, 336, 360, 390, 420, 450, 480, 510, 540, 570, 570, 600, 630, 660, 720, 750];
 
   // ── GF(256) tables ─────────────────────────────────────────────────────────
   var N = new Uint8Array(512), B = new Uint8Array(256);
@@ -120,66 +115,60 @@ var QRCode = function(t) {
     for (var t = 1, r = 0; r < 255; r++) N[r] = t, B[t] = r, 256 & (t <<= 1) && (t ^= 285);
     for (var e = 255; e < 512; e++) N[e] = N[e - 255]
   }();
-  var C = function(t) { return N[t] },
-    P = function(t, r) { return 0 === t || 0 === r ? 0 : N[B[t] + B[r]] };
+  var P = function(t, r) { return 0 === t || 0 === r ? 0 : N[B[t] + B[r]] };
 
   // ── Polynomial operations ──────────────────────────────────────────────────
-  var R = {};
-  R.mul = function(t, r) {
+  function mulPoly(t, r) {
     for (var e = new Uint8Array(t.length + r.length - 1), n = 0; n < t.length; n++)
       for (var o = 0; o < r.length; o++) e[n + o] ^= P(t[n], r[o]);
     return e
-  };
-  R.mod = function(t, r) {
+  }
+  function modPoly(t, r) {
     for (var e = new Uint8Array(t); e.length - r.length >= 0;) {
       for (var n = e[0], o = 0; o < r.length; o++) e[o] ^= P(r[o], n);
       for (var a = 0; a < e.length && 0 === e[a];) a++;
       e = e.slice(a)
     }
     return e
-  };
-  R.generateECPolynomial = function(t) {
-    for (var e = new Uint8Array([1]), n = 0; n < t; n++) e = R.mul(e, new Uint8Array([1, C(n)]));
+  }
+  function genECPoly(t) {
+    for (var e = new Uint8Array([1]), n = 0; n < t; n++) e = mulPoly(e, new Uint8Array([1, N[n]]));
     return e
-  };
+  }
 
   // ── Reed-Solomon encoder ───────────────────────────────────────────────────
-  function T(t) {
-    this.degree = t, this.genPoly = R.generateECPolynomial(t)
-  }
-  T.prototype.encode = function(t) {
-    var r = new Uint8Array(t.length + this.degree);
-    r.set(t);
-    var e = R.mod(r, this.genPoly), n = this.degree - e.length;
-    if (n > 0) { var o = new Uint8Array(this.degree); return o.set(e, n), o }
+  function encodeRS(data, degree, genPoly) {
+    var r = new Uint8Array(data.length + degree);
+    r.set(data);
+    var e = modPoly(r, genPoly), n = degree - e.length;
+    if (n > 0) { var o = new Uint8Array(degree); return o.set(e, n), o }
     return e
-  };
+  }
 
   // ── Version and format ─────────────────────────────────────────────────────
-  var O = {};
-  O.getCapacity = function(t) {
-    return Math.floor((8 * (cw[t] - M(t)) - (t < 10 ? 12 : 20)) / 8)
-  };
-  O.getBestVersionForData = function(len) {
-    for (var o = 1; o <= 40; o++) if (len <= O.getCapacity(o)) return o
-  };
+  function getCapacity(t) {
+    return Math.floor((8 * (cw[t] - A[t - 1]) - (t < 10 ? 12 : 20)) / 8)
+  }
+  function getBestVersionForData(len) {
+    for (var o = 1; o <= 40; o++) if (len <= getCapacity(o)) return o
+  }
   var _versionBits = 13; // precomputed i(7973)
-  O.getEncodedBits = function(t) {
+  function getEncodedBits(t) {
     if (t < 7) throw new Error("Invalid QR Code version");
     for (var r = t << 12; i(r) - _versionBits >= 0;) r ^= 7973 << i(r) - _versionBits;
     return t << 12 | r
-  };
+  }
 
-  // ── Format info ────────────────────────────────────────────────────────────
+  // ── Format info (EC level L hardcoded: bit=1, so ecBits<<3 = 8) ───────────
   var Q = 11, // precomputed i(1335)
-    V = function(t, r) {
-      for (var e = t.bit << 3 | r, n = e << 10; i(n) - Q >= 0;) n ^= 1335 << i(n) - Q;
+    V = function(r) {
+      for (var e = 8 | r, n = e << 10; i(n) - Q >= 0;) n ^= 1335 << i(n) - Q;
       return 21522 ^ (e << 10 | n)
     };
 
   // ── Format info writer ─────────────────────────────────────────────────────
-  function ot(t, r, e) {
-    var n, o, a = t.size, i = V(r, e);
+  function ot(t, e) {
+    var n, o, a = t.size, i = V(e);
     for (n = 0; n < 15; n++) {
       o = 1 == (i >> n & 1);
       n < 6 ? t.set(n, 8, o, !0) : n < 8 ? t.set(n + 1, 8, o, !0) : t.set(a - 15 + n, 8, o, !0);
@@ -190,7 +179,7 @@ var QRCode = function(t) {
 
   // ── Data encoder: byte-mode bit packing + RS interleaving ─────────────────
   function at(version, data) {
-    var totalBytes = cw[version] - M(version);
+    var totalBytes = cw[version] - A[version - 1];
     var ccBits = version < 10 ? 8 : 16;
     var buf = new Uint8Array(totalBytes);
     var bits = 0, blen = 0, idx = 0;
@@ -205,16 +194,16 @@ var QRCode = function(t) {
     if (blen) buf[idx++] = bits << (8 - blen) & 0xFF;
     for (var pad = 0; idx < totalBytes; idx++, pad++) buf[idx] = pad & 1 ? 0x11 : 0xEC;
 
-    var total = cw[version], numBlocks = I(version);
+    var total = cw[version], numBlocks = y[version - 1];
     var shortBlocks = numBlocks - total % numBlocks;
     var shortData = Math.floor(totalBytes / numBlocks);
     var ecPerBlock = Math.floor(total / numBlocks) - shortData;
-    var rs = new T(ecPerBlock), off = 0, maxLen = 0;
+    var genPoly = genECPoly(ecPerBlock), off = 0, maxLen = 0;
     var dataBlocks = new Array(numBlocks), ecBlocks = new Array(numBlocks);
     for (var b = 0; b < numBlocks; b++) {
       var len = b < shortBlocks ? shortData : shortData + 1;
       dataBlocks[b] = buf.slice(off, off + len);
-      ecBlocks[b] = rs.encode(dataBlocks[b]);
+      ecBlocks[b] = encodeRS(dataBlocks[b], ecPerBlock, genPoly);
       off += len; maxLen = Math.max(maxLen, len);
     }
     var out = new Uint8Array(total), pos = 0;
@@ -230,7 +219,7 @@ var QRCode = function(t) {
   // ── QR code builder ───────────────────────────────────────────────────────
   function it(t, r, n) {
     var data = t[0] && t[0].data ? t[0].data : new Uint8Array(0);
-    var version = r || O.getBestVersionForData(data.length);
+    var version = r || getBestVersionForData(data.length);
     if (!version) throw new Error("The amount of data is too big to be stored in a QR Code");
     var sz = 4 * version + 17, mat = new l(sz);
     var encoded = at(version, data);
@@ -266,11 +255,11 @@ var QRCode = function(t) {
             ai === -2 || ai === 2 || aj === -2 || aj === 2 || (ai === 0 && aj === 0), !0);
     }
 
-    ot(mat, ECL, 0);
+    ot(mat, 0);
 
     // Version info (version >= 7 only)
     if (version >= 7) {
-      var vbits = O.getEncodedBits(version);
+      var vbits = getEncodedBits(version);
       for (var vi = 0; vi < 18; vi++) {
         var vr = Math.floor(vi / 3), vc = vi % 3 + sz - 11, vb = !!(vbits >> vi & 1);
         mat.set(vr, vc, vb, !0); mat.set(vc, vr, vb, !0);
@@ -293,9 +282,9 @@ var QRCode = function(t) {
       }
     }
 
-    var maskPat = isNaN(n) ? E.getBestMask(mat, ot.bind(null, mat, ECL)) : n;
+    var maskPat = isNaN(n) ? E.getBestMask(mat, ot.bind(null, mat)) : n;
     E.applyMask(maskPat, mat);
-    ot(mat, ECL, maskPat);
+    ot(mat, maskPat);
     return mat;
   }
 
