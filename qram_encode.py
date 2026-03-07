@@ -307,6 +307,8 @@ class QRDisplay:
         self._running = True
         self._last_present = 0.0
         self._latest_frame: tuple[bytes, int] | None = None
+        self._cached_surf: object = None
+        self._cached_frame_id: int | None = None
         self._futures: deque = deque()
         self._sem = threading.BoundedSemaphore(self._PREFETCH)
         self._pool = ProcessPoolExecutor(
@@ -343,7 +345,7 @@ class QRDisplay:
             self._futures.append(fut)
 
     def _pull_ready_frames(self) -> None:
-        if self._futures and self._futures[0].done():
+        while self._futures and self._futures[0].done():
             fut = self._futures.popleft()
             self._sem.release()
             try:
@@ -356,22 +358,24 @@ class QRDisplay:
         self.screen.fill((20, 20, 20))
 
         if self._latest_frame is not None:
-            flat_bytes, native = self._latest_frame
-            # Reconstruct the module grid and scale it to screen size.
-            # All numpy ops are fast; the heavy work (segno.make_qr) stayed
-            # in the worker.  Doing this here instead of in the worker cuts
-            # the IPC payload from ~367 KB of RGB bytes down to ~native²
-            # bytes (a few KB), which is the main win from this refactor.
-            modules = np.frombuffer(flat_bytes, dtype=np.uint8).reshape(native, native)
-            native_with_border = native + 2 * QR_BORDER
-            scale = max(1, QR_WIDTH // native_with_border)
-            pixels = np.where(modules, np.uint8(0), np.uint8(255))
-            pixels = np.pad(pixels, QR_BORDER, constant_values=255)
-            pixels = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1)
-            h, w = pixels.shape
-            rgb = np.empty((h, w, 3), dtype=np.uint8)
-            rgb[...] = pixels[:, :, np.newaxis]  # broadcast into all 3 channels at once
-            surf = pygame.image.frombuffer(rgb.tobytes(), (w, h), "RGB")
+            frame_id = id(self._latest_frame)
+            if frame_id != self._cached_frame_id:
+                flat_bytes, native = self._latest_frame
+                # Build a small surface from the native module grid (~43×43 px)
+                # and scale it up with pygame (C-level) instead of expanding the
+                # array in Python.  tobytes() payload drops from ~500 KB to ~5 KB.
+                modules = np.frombuffer(flat_bytes, dtype=np.uint8).reshape(native, native)
+                pixels = np.where(modules, np.uint8(0), np.uint8(255))
+                padded = np.pad(pixels, QR_BORDER, constant_values=255)
+                ph, pw = padded.shape
+                rgb_small = np.stack([padded, padded, padded], axis=-1)
+                small_surf = pygame.image.frombuffer(rgb_small.tobytes(), (pw, ph), "RGB")
+                scale = max(1, QR_WIDTH // max(pw, ph))
+                self._cached_surf = pygame.transform.scale(small_surf, (pw * scale, ph * scale))
+                self._cached_frame_id = frame_id
+
+            surf = self._cached_surf
+            w, h = surf.get_size()
             x = (QR_WIDTH - w) // 2
             y = max(0, (QR_WIDTH - h) // 2)
             self.screen.blit(surf, (x, y))
@@ -403,7 +407,7 @@ class QRDisplay:
                 self._last_present = now
                 self._draw()
 
-            self.clock.tick(240)
+            self.clock.tick(max(60, self._fps * 4))
 
     def _drain_and_shutdown(self) -> None:
         self._running = False
