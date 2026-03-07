@@ -4,7 +4,7 @@
 Reworked for better runtime performance:
 - Drops tkinter / ImageTk hot-path
 - Avoids PNG/BMP encode/decode per frame
-- Workers return raw RGB frame bytes instead of image files
+- Workers return compact QR matrix bits; main process scales and colours locally
 - Uses pygame for direct blitting
 - Keeps QRAM / QRAMC wire compatibility with the JS encoder
 
@@ -32,6 +32,8 @@ import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
+
+import numpy as np
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -253,37 +255,28 @@ def format_bytes(n: int) -> str:
 # ─── Worker process helpers ──────────────────────────────────────────────────
 
 def _worker_init() -> None:
-    import numpy  # noqa: F401
     import segno  # noqa: F401
 
 
-def _render_worker(packet: bytes, target_px: int) -> tuple[bytes, int, int]:
-    """Render packet to raw RGB bytes for direct blitting.
+def _render_worker(packet: bytes) -> tuple[bytes, int]:
+    """Encode packet as a QR symbol and return the raw module bits.
 
     Returns:
-      (rgb_bytes, width, height)
+      (flat_bytes, native) where flat_bytes is native*native uint8 values
+      (1 = dark, 0 = light) and native is the matrix side-length.
+
+    Keeping only the compact matrix in the return value reduces IPC payload
+    by ~100–150× compared with shipping a full scaled RGB frame across the
+    process boundary.  All numpy scaling/colouring happens in the main
+    process where it adds negligible latency.
     """
-    import numpy as np
     import segno
 
     qr = segno.make_qr(packet, error="l")
-    modules = np.array(qr.matrix, dtype=np.uint8) & 1  # 1 = dark
-
-    native_size = modules.shape[0] + 2 * QR_BORDER
-    scale = max(1, target_px // native_size)
-
-    pixels = np.where(modules == 1, 0, 255).astype(np.uint8)
-    pixels = np.pad(pixels, QR_BORDER, constant_values=255)
-    pixels = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1)
-
-    h, w = pixels.shape
-    rgb = np.empty((h, w, 3), dtype=np.uint8)
-    rgb[:, :, 0] = pixels
-    rgb[:, :, 1] = pixels
-    rgb[:, :, 2] = pixels
-
-    rgb = np.ascontiguousarray(rgb)
-    return (rgb.tobytes(), w, h)
+    matrix = qr.matrix
+    native = len(matrix)
+    flat = bytes(v & 1 for row in matrix for v in row)  # 1=dark, 0=light
+    return flat, native
 
 
 # ─── Display window ───────────────────────────────────────────────────────────
@@ -292,7 +285,7 @@ class QRDisplay:
     """Animated QR display using pygame and raw RGB buffers."""
 
     _WORKERS = max(2, (os.cpu_count() or 2) - 1)
-    _PREFETCH = _WORKERS * 2
+    _PREFETCH = _WORKERS * 3
 
     def __init__(
         self,
@@ -313,7 +306,7 @@ class QRDisplay:
         self._n = 0
         self._running = True
         self._last_present = 0.0
-        self._latest_frame: tuple[bytes, int, int] | None = None
+        self._latest_frame: tuple[bytes, int] | None = None
         self._futures: deque = deque()
         self._sem = threading.BoundedSemaphore(self._PREFETCH)
         self._pool = ProcessPoolExecutor(
@@ -346,7 +339,7 @@ class QRDisplay:
             if not self._running:
                 self._sem.release()
                 break
-            fut = self._pool.submit(_render_worker, pkt, QR_WIDTH)
+            fut = self._pool.submit(_render_worker, pkt)
             self._futures.append(fut)
 
     def _pull_ready_frames(self) -> None:
@@ -363,8 +356,22 @@ class QRDisplay:
         self.screen.fill((20, 20, 20))
 
         if self._latest_frame is not None:
-            rgb_bytes, w, h = self._latest_frame
-            surf = pygame.image.frombuffer(rgb_bytes, (w, h), "RGB")
+            flat_bytes, native = self._latest_frame
+            # Reconstruct the module grid and scale it to screen size.
+            # All numpy ops are fast; the heavy work (segno.make_qr) stayed
+            # in the worker.  Doing this here instead of in the worker cuts
+            # the IPC payload from ~367 KB of RGB bytes down to ~native²
+            # bytes (a few KB), which is the main win from this refactor.
+            modules = np.frombuffer(flat_bytes, dtype=np.uint8).reshape(native, native)
+            native_with_border = native + 2 * QR_BORDER
+            scale = max(1, QR_WIDTH // native_with_border)
+            pixels = np.where(modules, np.uint8(0), np.uint8(255))
+            pixels = np.pad(pixels, QR_BORDER, constant_values=255)
+            pixels = np.repeat(np.repeat(pixels, scale, axis=0), scale, axis=1)
+            h, w = pixels.shape
+            rgb = np.empty((h, w, 3), dtype=np.uint8)
+            rgb[...] = pixels[:, :, np.newaxis]  # broadcast into all 3 channels at once
+            surf = pygame.image.frombuffer(np.ascontiguousarray(rgb).tobytes(), (w, h), "RGB")
             x = (QR_WIDTH - w) // 2
             y = max(0, (QR_WIDTH - h) // 2)
             self.screen.blit(surf, (x, y))
