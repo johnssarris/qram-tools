@@ -200,7 +200,7 @@ def maybe_compress(payload: bytes) -> bytes:
     if len(payload) < MIN_COMPRESS_INPUT_BYTES:
         return payload
     try:
-        compressed = gzip.compress(payload, compresslevel=6)
+        compressed = gzip.compress(payload, compresslevel=9)
     except Exception:
         return payload
 
