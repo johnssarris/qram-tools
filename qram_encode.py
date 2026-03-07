@@ -32,7 +32,6 @@ import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Deque
 
 
 # ─── Constants ────────────────────────────────────────────────────────────────
@@ -294,7 +293,6 @@ class QRDisplay:
 
     _WORKERS = max(2, (os.cpu_count() or 2) - 1)
     _PREFETCH = _WORKERS * 2
-    _POLL_MS = 2
 
     def __init__(
         self,
@@ -316,7 +314,7 @@ class QRDisplay:
         self._running = True
         self._last_present = 0.0
         self._latest_frame: tuple[bytes, int, int] | None = None
-        self._futures: Deque = deque()
+        self._futures: deque = deque()
         self._sem = threading.BoundedSemaphore(self._PREFETCH)
         self._pool = ProcessPoolExecutor(
             max_workers=self._WORKERS,
@@ -352,15 +350,13 @@ class QRDisplay:
             self._futures.append(fut)
 
     def _pull_ready_frames(self) -> None:
-        while self._futures and self._futures[0].done():
+        if self._futures and self._futures[0].done():
             fut = self._futures.popleft()
             self._sem.release()
             try:
-                frame = fut.result()
+                self._latest_frame = fut.result()
             except Exception as exc:
                 print(f"Render error: {exc}", file=sys.stderr)
-                continue
-            self._latest_frame = frame
 
     def _draw(self) -> None:
         pygame = self.pygame
