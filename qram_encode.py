@@ -118,10 +118,10 @@ def make_packet(
     n = len(blocks)
     hdr_size = _header_size(n)
 
-    acc = int.from_bytes(blocks[0], "big")
+    arr = np.frombuffer(blocks[0], dtype=np.uint8).copy()
     for blk in blocks[1:]:
-        acc ^= int.from_bytes(blk, "big")
-    payload_bytes = acc.to_bytes(block_size, "big")
+        arr ^= np.frombuffer(blk, dtype=np.uint8)
+    payload_bytes = arr.tobytes()
 
     packet_digest = sha256_multihash(payload_bytes)
 
@@ -200,7 +200,7 @@ def maybe_compress(payload: bytes) -> bytes:
     if len(payload) < MIN_COMPRESS_INPUT_BYTES:
         return payload
     try:
-        compressed = gzip.compress(payload, compresslevel=9)
+        compressed = gzip.compress(payload, compresslevel=6)
     except Exception:
         return payload
 
@@ -275,7 +275,7 @@ def _render_worker(packet: bytes) -> tuple[bytes, int]:
     qr = segno.make_qr(packet, error="l")
     matrix = qr.matrix
     native = len(matrix)
-    flat = bytes(v & 1 for row in matrix for v in row)  # 1=dark, 0=light
+    flat = (np.array(matrix, dtype=np.uint8) & 1).tobytes()  # 1=dark, 0=light
     return flat, native
 
 
@@ -334,7 +334,7 @@ class QRDisplay:
         for pkt in self._encoder:
             if not self._running:
                 break
-            if not self._sem.acquire(timeout=0.25):
+            if not self._sem.acquire(timeout=0.05):
                 continue
             if not self._running:
                 self._sem.release()
@@ -371,7 +371,7 @@ class QRDisplay:
             h, w = pixels.shape
             rgb = np.empty((h, w, 3), dtype=np.uint8)
             rgb[...] = pixels[:, :, np.newaxis]  # broadcast into all 3 channels at once
-            surf = pygame.image.frombuffer(np.ascontiguousarray(rgb).tobytes(), (w, h), "RGB")
+            surf = pygame.image.frombuffer(rgb.tobytes(), (w, h), "RGB")
             x = (QR_WIDTH - w) // 2
             y = max(0, (QR_WIDTH - h) // 2)
             self.screen.blit(surf, (x, y))
