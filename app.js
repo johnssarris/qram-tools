@@ -1,7 +1,7 @@
     // ── CONFIG: tunables and named constants ────────────────────────────
     const CONFIG = Object.freeze({
       // Encoder limits
-      MAX_FILE_SIZE:     1 * 1024 * 1024,  // 1 MB
+      MAX_FILE_SIZE:     5 * 1024 * 1024,  // 1 MB
       MIN_BLOCK_SIZE:    50,
       MAX_BLOCK_SIZE:    20000,
       DEFAULT_BLOCK:     200,
